@@ -2,8 +2,8 @@
   <img src="assets/logo_chromasave.jpeg" width="800" alt="ChromaSave Logo">
   <p><i>Advanced G-code post-processing plugin for reducing filament waste in multi-color 3D printing.</i></p>
 
-  ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
-  ![License](https://img.shields.io/badge/license-GNU%20GPLv3-green.svg)
+  ![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)
+  ![License](https://img.shields.io/badge/license-GNU%20AGPLv3-green.svg)
   ![Platform](https://img.shields.io/badge/platform-OrcaSlicer%20%7C%20Klipper-orange.svg)
 </div>
 
