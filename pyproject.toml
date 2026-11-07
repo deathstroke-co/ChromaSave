@@ -1,0 +1,28 @@
+[build-system]
+# Define the necessary tools to build the wheel package (.whl)
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Static Plugin's Metadata
+name = "chromasave"
+version = "1.0.0"
+description = "G-code optimization plugin, designed to reduce filament waste in single-head multi-color 3D printing systems."
+authors = [
+    { name = "Luis Miguel Lara (deathstroke-co)" }
+]
+
+# SPDX id - GNU Affero General Public License v3.0
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+
+requires-python = ">=3.10"
+
+# Project description => README.md
+readme = "README.md" 
+
+# --- SRC-LAYOUT ---
+[tool.setuptools.packages.find]
+# Instruction to find packages (equal to find_packages())
+where = ["src"]
+include = ["chromasave*"]
