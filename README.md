@@ -102,7 +102,7 @@ Go to the **Config** tab in Plugin Window and configure the default ChromaSave p
 *   `purge_target`: `"hybrid"` or `"bucket_only"` - Defines where the residual purge is directed (hybrid compensates with the wipe tower).
 *   `rem`: Retraction margin (in mm) – Safely relocates the `FILAMENT_CHANGE` command.
 *   `sm`: Safety margin (in mm) to prevent color mixing. For the ChromaHotend, a value of less than 20 mm results in color mixing (corresponds to the length of the hotend block).
-*   `sre`: Search Retraction (true/false) - Looks for a retraction command to relocate the `FILAMENT_CHANGE` command within the tolerance window. Must be active with `aicp`.
+*   `sre`: Search Retraction (true/false) - Looks for a retraction command to relocate the `FILAMENT_CHANGE` command within the tolerance window. Must be active with `aipc`.
 
 ### 3. Klipper Macro Setup
 1. Download the [SmartPurge.cfg](./klipper_configs/) macro and upload it to your printer's Klipper configuration folder (usually `~/printer_data/config/`).
