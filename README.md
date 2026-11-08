@@ -81,7 +81,7 @@ Go to the **Config** tab in Plugin Window and configure the default ChromaSave p
     "Support interface": false,
     "Top surface": false
   },
-  "aicp": true,
+  "aipc": true,
   "len": 64.857,
   "purge_target": "hybrid",
   "rem": 5,
@@ -97,7 +97,7 @@ Go to the **Config** tab in Plugin Window and configure the default ChromaSave p
 
 **Variables Explanation:**
 *   `SAFETY_ZONES`: The G-code zones where you allow ChromaSave to trigger the cut and filament-change command.
-*   `aicp`: Avoid in Piece Cut (true/false) – Prevents the `FILAMENT_CHANGE` command within aesthetic zones.
+*   `aipc`: Avoid in Piece Cut (true/false) – Prevents the `FILAMENT_CHANGE` command within aesthetic zones.
 *   `len`: Remaining length (in mm) between the cutter and the hotend tip. (e.g., ChromaHead Nozzle volume (156mm³) = 64.857mm of filament for 1.75mm diameter).
 *   `purge_target`: `"hybrid"` or `"bucket_only"` - Defines where the residual purge is directed (hybrid compensates with the wipe tower).
 *   `rem`: Retraction margin (in mm) – Safely relocates the `FILAMENT_CHANGE` command.
