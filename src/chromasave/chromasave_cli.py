@@ -59,6 +59,8 @@ if __name__ == "__main__":
     
     parser.add_argument('--rem', type=float, default=5.0, help='Lock for a retraction margin in mm for safely relocating the FILAMENT_CHANGE command')
     parser.add_argument('filepath', type=str, help='Path to G-code file')
+
+    parser.add_argument('--skip_purge', type=float, default=2.0, help='skip_purge - Minimum length in mm of purge to skip dynamic purge process')
     
     parser.add_argument('--aipc', action='store_true', help='Enable - Avoid in Piece Cut - to prevent FILAMENT_CHANGE command within aesthetic zone.')
     parser.add_argument('--no-aipc', action='store_false', dest='aipc', help='Disable - Avoid in Piece Cut -')

@@ -38,6 +38,10 @@ class ChromaSaveConfig:
         self.sre = bool(ui_config.get("sre", True))
         self.rem = float(ui_config.get("rem", 5.0))
         self.aipc = bool(ui_config.get("aipc", True))
+
+        # NUEVO: Límite dinámico para omitir la purga (Skip Purge en mm)
+        # Si la UI no envía el valor, el valor por defecto será 2.0 mm
+        self.skip_purge = float(ui_config.get("skip_purge", 2.0))
         
         # Purge Destination ("hybrid" by default, "bucket_only" as alternative)
         self.purge_target = str(ui_config.get("purge_target", "hybrid")).strip().lower()
@@ -86,6 +90,10 @@ class ChromaSaveConfig:
         print(f"[ChromaSave LOG] -> sre: {self.sre}", file=sys.stderr)
         print(f"[ChromaSave LOG] -> aipc: {self.aipc}", file=sys.stderr)
         print(f"[ChromaSave LOG] -> purge_target: {self.purge_target}", file=sys.stderr)
+
+        # NUEVO: Imprimir el valor de skip_purge en los logs de OrcaSlicer
+        print(f"[ChromaSave LOG] -> skip_purge: {self.skip_purge}", file=sys.stderr)
+        
         print(f"[ChromaSave LOG] -> Safety_Zones: {self.dzones}", file=sys.stderr)
 
         # Extracting Filaments Info from API

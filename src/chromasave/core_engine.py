@@ -154,6 +154,31 @@ def filament_change_optimizer(config):
     current_type = "unknown"
     is_absolute_e = False
     last_e = 0.0
+
+    idx_purge_start = -1
+    idx_purge_end = -1
+
+    # NUEVO: Vectores de estado cinemático
+    state_x = [0.0] * total_lines
+    state_y = [0.0] * total_lines
+    state_z = [0.0] * total_lines
+    state_f = [0.0] * total_lines
+    
+    current_x, current_y, current_z, current_f = 0.0, 0.0, 0.0, 0.0
+    
+    is_bambu_lab = False # Bandera de auto-detección
+
+    # Bambu Lab Specific Anchors
+    re_bambu_tc_start = re.compile(r"^;\s*CP TOOLCHANGE START")
+    re_bambu_tc_end = re.compile(r"^;\s*CP TOOLCHANGE END")
+    re_flush_start = re.compile(r"^;\s*FLUSH_START")
+    re_flush_end = re.compile(r"^;\s*FLUSH_END")
+    
+    # State Tracker Regex
+    re_coord_x = re.compile(r"X(-?[0-9]*\.?[0-9]+)")
+    re_coord_y = re.compile(r"Y(-?[0-9]*\.?[0-9]+)")
+    re_coord_z = re.compile(r"Z(-?[0-9]*\.?[0-9]+)")
+    re_feedrate = re.compile(r"F([0-9]*\.?[0-9]+)")
     
     # PERFORMANCE CACHE
     search_type = re_type.search
@@ -179,6 +204,26 @@ def filament_change_optimizer(config):
             elif end_tag in line and active_blocks[start_tag] != -1:
                 unbreakable_ranges.append((active_blocks[start_tag], i))
                 active_blocks[start_tag] = -1
+
+        # Auto-detectar Bambu Lab
+        if "M620 S" in line or "; CP TOOLCHANGE START" in line:
+            is_bambu_lab = True
+
+        # Rastrear coordenadas espaciales
+        mx = re_coord_x.search(line)
+        my = re_coord_y.search(line)
+        mz = re_coord_z.search(line)
+        mf = re_feedrate.search(line)
+        
+        if mx: current_x = float(mx.group(1))
+        if my: current_y = float(my.group(1))
+        if mz: current_z = float(mz.group(1))
+        if mf: current_f = float(mf.group(1))
+        
+        state_x[i] = current_x
+        state_y[i] = current_y
+        state_z[i] = current_z
+        state_f[i] = current_f
                 
         # API Fallback for OrcaSlicer (Fast text check prior to regex)
         if not hasattr(config, "flush_multiplier") and "; flush_multiplier =" in line:
@@ -233,32 +278,52 @@ def filament_change_optimizer(config):
     changes = []
     i = 0
     while i < total_lines:
-        match_filament_change = re_filament_change.search(lines[i])
-        if match_filament_change:
-            layer_num = int(match_filament_change.group(1))
+        is_change_start = False
+
+        match_filament_change = re_filament_change.search(lines[i]) # Klipper
+        match_bambu_tc = re_bambu_tc_start.search(lines[i]) # Bambu Lab
+        
+        if match_filament_change or match_bambu_tc:
+            layer_num = int(match_filament_change.group(1)) if match_filament_change else 0
             origin = i
             end_move = i
-            idx_purge = -1
+            idx_purge_start = -1
+            idx_purge_end = -1
             current_tool = "T?"
             t_idx = 0
 
-            # Tool search
-            for j in range(i, min(i + 15, total_lines)):
+            # Buscar el final del Toolchange y la herramienta
+            for j in range(i, min(i + 50, total_lines)):
                 match_tool = re_tool.search(lines[j])
                 if match_tool:
-                    end_move = j
                     current_tool = match_tool.group(1)
                     if current_tool.startswith("T") and current_tool[1:].isdigit():
                         t_idx = int(current_tool[1:])
+                
+                # Para Bambu, el bloque termina en CP TOOLCHANGE END
+                if is_bambu_lab and re_bambu_tc_end.search(lines[j]):
+                    end_move = j
+                    break
+                # Para Klipper, termina en el Tool (T0, T1...)
+                elif not is_bambu_lab and match_tool:
+                    end_move = j
                     break
 
-            # Purge search
-            for j in range(end_move, min(end_move + 25, total_lines)):
-                if re_purge.search(lines[j]):
-                    idx_purge = j
-                    #end_move = j
+            # Buscar Purga Dinámica (Bambu) o macro (Klipper)
+            for j in range(end_move, min(end_move + 150, total_lines)):
+                if not is_bambu_lab and re_purge.search(lines[j]):
+                    idx_purge_start = j
+                    idx_purge_end = j
                     break
-            
+                elif is_bambu_lab and re_flush_start.search(lines[j]):
+                    idx_purge_start = j
+                    # Buscar dónde termina el bloque de purga nativo
+                    for k in range(j, min(j + 50, total_lines)):
+                        if re_flush_end.search(lines[k]):
+                            idx_purge_end = k
+                            break
+                    break
+
             # Wipe Tower volume calculation
             tower_e_mm = 0.0
             in_wipe_tower = False
@@ -285,7 +350,8 @@ def filament_change_optimizer(config):
                 "layer": layer_num,
                 "origin": origin,
                 "end_move": end_move,
-                "idx_purge": idx_purge,
+                "idx_purge_start": idx_purge_start,
+                "idx_purge_end": idx_purge_end,
                 "tool": current_tool,
                 "t_idx": t_idx,
                 "tower_e_mm": tower_e_mm
@@ -311,7 +377,7 @@ def filament_change_optimizer(config):
         lower_limit = 0
         if idx_change > 0:
             previous_change = changes[idx_change - 1]
-            lower_limit = max(previous_change["origin"], previous_change["end_move"], previous_change["idx_purge"]) + 1
+            lower_limit = max(previous_change["origin"], previous_change["end_move"], previous_change["idx_purge_start"]) + 1
             
         for idx in range(c["origin"] - 1, lower_limit - 1, -1):
             line = lines[idx]
@@ -429,14 +495,59 @@ def filament_change_optimizer(config):
     
     total_saving = 0.0
     optimized_changes = 0
+
+    SKIP_PURGE_THRESHOLD = getattr(config, 'skip_purge', 2.0) # Tu nueva variable
     
     for idx_change, c in enumerate(changes):
-        if c["layer"] < 0:
-            continue
-        
+        if c["layer"] < 0: continue
+
+
         if c.get("cut_index") < c["origin"]:
+            # --- MANEJO DEL TOOLCHANGE (Early-Cut) ---
             block = lines[c["origin"] : c["end_move"] + 1]
-            insertions[c["cut_index"]].extend(block)
+
+            if is_bambu_lab:
+                # 1. Recuperar el estado cinemático exacto del punto de corte
+                cut_x = state_x[c["cut_index"]]
+                cut_y = state_y[c["cut_index"]]
+                cut_z = state_z[c["cut_index"]]
+                cut_f = state_f[c["cut_index"]]
+                
+                # 2. Inyectar el bloque original (que viaja al basurero y cambia filamento)
+                insertions[c["cut_index"]].extend(block)
+
+                # 3. Inyectar viaje de retorno a la pieza (Primero XY arriba, luego bajar Z)
+                return_gcode = [
+                    "; --- ChromaSave Return Travel ---\n",
+                    f"G1 X{cut_x:.3f} Y{cut_y:.3f} F21000\n", # Viaje lateral seguro (arriba)
+                    f"G1 Z{cut_z:.3f} F1200\n",             # Bajada vertical a la pieza
+                    f"G1 F{cut_f:.1f}\n",                   # Restablecer velocidad original
+                    "G92 E0\n",                             # Resetear extrusor para el remanente
+                    "; --------------------------------\n"
+                ]
+                insertions[c["cut_index"]].extend(return_gcode)
+                
+                # 4. Aislar los viajes al basurero del bloque original
+                travel_to_chute = []
+                for b_line in block:
+                    if re_z_hop.search(b_line): continue
+                    if "M620.1" in b_line or "M620.2" in b_line: break
+                    if (b_line.startswith("G1 ") or b_line.startswith("G0 ")) and ("X" in b_line or "Y" in b_line):
+                        travel_to_chute.append(b_line)
+                
+                # 5. Inyectar el doble viaje justo en la posición original (Sumando Z-hop de seguridad)
+                insertions[c["origin"]].extend([
+                    "; --- ChromaSave Chute Re-route ---\n",
+                    f"G1 Z{cut_z + 3.0:.3f} F1200\n" # Z-hop antes de volver al basurero
+                ])
+                insertions[c["origin"]].extend(travel_to_chute)
+                insertions[c["origin"]].extend(["G92 E0\n; ---------------------------------\n"])
+                
+            else:
+                # Comportamiento original de Klipper
+                insertions[c["cut_index"]].extend(block)
+
+            # Borrar las líneas originales del toolchange
             for k in range(c["origin"], c["end_move"] + 1):
                 line_to_erase.add(k)
                 
@@ -448,24 +559,44 @@ def filament_change_optimizer(config):
             
         elif idx_change == 1:
             print(f"[PASSED] Layer {c['layer']} | {c['break_flag']} | Trash: {c['calculate_quantity']:.2f} mm")
-            
-        if c["idx_purge"] != -1:
-            match_indent = re.match(r"^(\s*)", lines[c["idx_purge"]])
-            indent = match_indent.group(1) if match_indent else ""
-            
-            curr_t_idx = c.get("t_idx", 0)
-            prev_t_idx = changes[idx_change - 1].get("t_idx", 0) if idx_change > 0 else curr_t_idx
-            
-            curr_type = config.types[curr_t_idx] if hasattr(config, 'types') and curr_t_idx < len(config.types) else "UNK"
-            curr_color = hex_to_color_name(config.colors[curr_t_idx] if hasattr(config, 'colors') and curr_t_idx < len(config.colors) else "#000")
-            
-            prev_type = config.types[prev_t_idx] if hasattr(config, 'types') and prev_t_idx < len(config.types) else "UNK"
-            prev_color = hex_to_color_name(config.colors[prev_t_idx] if hasattr(config, 'colors') and prev_t_idx < len(config.colors) else "#000")
-            
-            flush_val = c.get("flush_vol", 0.0)
-            obs_text = f"Active: T{curr_t_idx} [{curr_type} {curr_color}] (Purging T{prev_t_idx} [{prev_type} {prev_color}] {c['calculate_quantity']:.2f} mm) | Matrix: {flush_val:.1f} mm3 ({flush_val/area:.2f} mm) | Tower: {c['tower_e_mm']:.1f} mm"
-            replacement[c["idx_purge"]] = f"{indent}PURGE_IN_TRASH QUANTITY={c['calculate_quantity']:.4f} OBS=\"{obs_text}\" MATERIAL=\"{prev_type}\"\n"
-        
+
+
+        # --- MANEJO DE LA PURGA (Dinámica vs Klipper) ---
+        p_start = c.get("idx_purge_start", -1)
+        p_end = c.get("idx_purge_end", -1)
+
+        if p_start != -1:
+            if is_bambu_lab:
+                # Borrar todo el bloque nativo de Bambu Lab (; FLUSH_START hasta ; FLUSH_END)
+                for k in range(p_start, p_end + 1):
+                    line_to_erase.add(k)
+                    
+                # Evaluar la variable "Skip Purge"
+                net_purge = c['calculate_quantity']
+                if net_purge < SKIP_PURGE_THRESHOLD:
+                    replacement[p_start] = f"; FLUSH_START\n; ChromaSave SKIP PURGE ({net_purge:.2f}mm < {SKIP_PURGE_THRESHOLD}mm)\nG1 E0.5 F300\n; FLUSH_END\n"
+                else:
+                    replacement[p_start] = f"; FLUSH_START\n; ChromaSave STATIC PURGE\nG1 E{net_purge:.4f} F300\n; FLUSH_END\n"
+            else:
+                # Inyección estándar para Klipper
+                match_indent = re.match(r"^(\s*)", lines[p_start])
+                indent = match_indent.group(1) if match_indent else ""
+
+                curr_t_idx = c.get("t_idx", 0)
+                prev_t_idx = changes[idx_change - 1].get("t_idx", 0) if idx_change > 0 else curr_t_idx
+                
+                curr_type = config.types[curr_t_idx] if hasattr(config, 'types') and curr_t_idx < len(config.types) else "UNK"
+                curr_color = hex_to_color_name(config.colors[curr_t_idx] if hasattr(config, 'colors') and curr_t_idx < len(config.colors) else "#000")
+                
+                prev_type = config.types[prev_t_idx] if hasattr(config, 'types') and prev_t_idx < len(config.types) else "UNK"
+                prev_color = hex_to_color_name(config.colors[prev_t_idx] if hasattr(config, 'colors') and prev_t_idx < len(config.colors) else "#000")
+
+                flush_val = c.get("flush_vol", 0.0)
+
+                obs_text = f"Active: T{curr_t_idx} [{curr_type} {curr_color}] (Purging T{prev_t_idx} [{prev_type} {prev_color}] {c['calculate_quantity']:.2f} mm) | Matrix: {flush_val:.1f} mm3 ({flush_val/area:.2f} mm) | Tower: {c['tower_e_mm']:.1f} mm"
+                replacement[p_start] = f"{indent}PURGE_IN_TRASH QUANTITY={c['calculate_quantity']:.4f} SKIP_THRESHOLD={SKIP_PURGE_THRESHOLD} OBS=\"{obs_text}\" MATERIAL=\"{prev_type}\"\n"
+
+
     new_lines = []
     for i in range(total_lines):
         if i in insertions:
