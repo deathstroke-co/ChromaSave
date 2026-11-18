@@ -130,7 +130,12 @@ Go to the **Config** tab in Plugin Window and configure the default ChromaSave p
 
 ChromaSave v1.1.0 integrates directly into **OrcaSlicer's Slicing Pipeline Plugin** system (`slicing_pipeline_plugin`).
 
-### 1. Klipper Macro Setup
+### 1. Installation
+1. Download the `chromasave-1.1.0b0-py3-none-any` plugin package from the [Releases](https://github.com/deathstroke-co/ChromaSave/releases) page.
+2. Open **OrcaSlicer** and navigate to your plugin manager / pipeline settings.
+3. Install and enable **`ChromaSave`**.
+
+### 2. Klipper Macro Setup
 1. Download the [SmartPurge.cfg](./klipper_configs/) macro and upload it to your printer's Klipper configuration folder (usually `~/printer_data/config/`).
 2. Inside `SmartPurge.cfg`, adjust the coordinates (`variable_purge_x`, `variable_purge_y`, `variable_wipe_dist`) to match your real physical bucket/brush locations.
 3. Ensure you include this config file in your main `printer.cfg` with the following line:
@@ -140,7 +145,7 @@ ChromaSave v1.1.0 integrates directly into **OrcaSlicer's Slicing Pipeline Plugi
 
 *Note: Inside `SmartPurge.cfg` there is an optimized `FILAMENT_CHANGE` macro. If you want use it you must comment or delete the factory `FILAMENT_CHANGE` in `cp_macro.cfg` file. If you don't want to use the optimized macro asure to adapt `SmartPurge.cfg`according to your needs.*
 
-### 2. OrcaSlicer Profile Adjustments
+### 3. OrcaSlicer Profile Adjustments
 **Filament Settings:**
 For every filament in OrcaSlicer, go to the filament settings, navigate to the **Advanced** tab, and add the macro call in the *Filament start G-code* section:
 ```gcode
@@ -164,7 +169,7 @@ FILAMENT_CHANGE LAYER_NUM=[layer_num] NEXT_EXTRUDER=[next_extruder] MATERIAL=[fi
   <img src="assets/filament_change.png" width="800" alt="FILAMENT_CHANGE CALL">
 </p>
 
-### 3. Usage
+### 4. Usage
 
 Go to the **Others** tab in your process profile, scroll down to the **Slicing Pipeline Plugin** section, add the ChromaSave Plugin, and click on **Configure** to setting up the ChromaSave Plugin parameters:
 
@@ -185,8 +190,10 @@ Slice, print, or save your G-code file as usual. Once the slicing pipeline finis
 
 ## 🚀 How to Use with Bambu Lab Printers (OrcaSlicer)
 
+ChromaSave v1.1.0 integrates directly into **OrcaSlicer's Slicing Pipeline Plugin** system (`slicing_pipeline_plugin`).
+
 ### 1. Installation
-1. Download the `chromasave-1.1.0-beta-py3-none-any` plugin package from the [Releases](../../releases) page.
+1. Download the `chromasave-1.1.0b0-py3-none-any` plugin package from the [Releases](https://github.com/deathstroke-co/ChromaSave/releases) page.
 2. Open **OrcaSlicer** and navigate to your plugin manager / pipeline settings.
 3. Install and enable **`ChromaSave`**.
 
