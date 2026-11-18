@@ -39,23 +39,24 @@ class ChromaSaveConfig:
         self.rem = float(ui_config.get("rem", 5.0))
         self.aipc = bool(ui_config.get("aipc", True))
 
-        # NUEVO: Límite dinámico para omitir la purga (Skip Purge en mm)
-        # Si la UI no envía el valor, el valor por defecto será 2.0 mm
+        # Dynamic limit for skipping purge (Skip Purge in mm)
         self.skip_purge = float(ui_config.get("skip_purge", 2.0))
+        
+        # NEW: Minimum saving limit to activate Early-Cut (in mm)
+        self.min_saving = float(ui_config.get("min_saving", 3.0))
         
         # Purge Destination ("hybrid" by default, "bucket_only" as alternative)
         self.purge_target = str(ui_config.get("purge_target", "hybrid")).strip().lower()
         
         # Default values for safety zones
         self.default_zones = {
-            #
-            "Prime tower": True,            
+            "Prime tower": True,     
+            "Wipe tower": True,             # Nomenclature of Bambu Lab       
             "Support": True,                
             "Support interface": True,      
             "Sparse infill": True,          
             "Dense infill": True,           
-            
-            # 
+            "Solid infill": True,           # Standard nomenclature of Orca
             "Internal solid infill": False, 
             "Skirt": False,                 
             "Brim": False,                  
@@ -90,10 +91,8 @@ class ChromaSaveConfig:
         print(f"[ChromaSave LOG] -> sre: {self.sre}", file=sys.stderr)
         print(f"[ChromaSave LOG] -> aipc: {self.aipc}", file=sys.stderr)
         print(f"[ChromaSave LOG] -> purge_target: {self.purge_target}", file=sys.stderr)
-
-        # NUEVO: Imprimir el valor de skip_purge en los logs de OrcaSlicer
         print(f"[ChromaSave LOG] -> skip_purge: {self.skip_purge}", file=sys.stderr)
-        
+        print(f"[ChromaSave LOG] -> min_saving: {self.min_saving}", file=sys.stderr)
         print(f"[ChromaSave LOG] -> Safety_Zones: {self.dzones}", file=sys.stderr)
 
         # Extracting Filaments Info from API
@@ -159,6 +158,13 @@ if orca is not None and hasattr(orca, "slicing"):
     class ChromaSavePostProcessor(orca.slicing.SlicingPipelineCapabilityBase):
         def get_name(self):
             return "ChromaSave SmartPurge"
+
+        def get_config_schema(self):
+            schema_path = os.path.join(os.path.dirname(__file__), "config_schema.json")
+            if os.path.exists(schema_path):
+                with open(schema_path, "r", encoding="utf-8") as f:
+                    return f.read()
+            return "{}"
             
         def execute(self, ctx):
             if ctx.step != orca.slicing.Step.psGCodePostProcess:
@@ -208,7 +214,7 @@ if orca is not None and hasattr(orca, "slicing"):
                                     break
                                     
                         # Clear emojis from the original report to avoid '?' characters in OrcaSlicer
-                        clean_report= report_result.replace("✅", "").replace("📊", "")
+                        clean_report = report_result.replace("✅", "").replace("📊", "")
                         
                         # Inject the notification using the entire text of the report
                         orca.host.ui.push_notification(notif_level, clean_report)

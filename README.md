@@ -2,12 +2,21 @@
   <img src="assets/logo_chromasave.jpeg" width="800" alt="ChromaSave Logo">
   <p><i>Advanced G-code post-processing plugin for reducing filament waste in multi-color 3D printing.</i></p>
 
-  ![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)
+  ![Version](https://img.shields.io/badge/version-1.1.0--beta-yellow.svg)
   ![License](https://img.shields.io/badge/license-GNU%20AGPLv3-green.svg)
   ![Platform](https://img.shields.io/badge/platform-OrcaSlicer%20%7C%20Klipper-orange.svg)
 </div>
 
-**ChromaSave** is a post-processing (slicing pipeline) plugin designed to reduce filament waste during color changes in 3D printers equipped with single-head, multi-color systems—such as the ChromaSet and KCM-Set systems from Coprint3D, which utilize the ChromaHead print head.
+# ChromaSave-SmartPurge (v1.1.0-beta)
+
+**ChromaSave** is an open-source post-processing plugin and CLI tool for **OrcaSlicer** designed to minimize multi-color filament purge waste in 3D printers equipped with single-head, multi-color systems—such as the ChromaSet and KCM-Set systems from Coprint3D, which utilize the ChromaHead print head.
+
+By performing **Early Filament Cutting** inside safe internal regions of the model (such as sparse infill, internal solid infill, supports, or the prime tower) and tracking residual melt-zone volume, ChromaSave consumes the remaining filament before the nozzle ever reaches the purge chute.
+
+> ⚠️ **BETA RELEASE NOTICE (`v1.1.0-beta`):**  
+> This release introduces experimental support for **Bambu Lab printers (AMS / AMS Lite)** alongside our validated Klipper multi-extruder workflow. While the G-code kinematics, Z-hop safety clearances, and volumetric calculations have been thoroughly audited in simulation, **Bambu Lab support requires physical hardware validation**. We are actively looking for Bambu Lab beta testers to run test prints and report feedback!
+
+---
 
 ## 🧠 The Concept
 
@@ -35,19 +44,24 @@ This anticipates the transition, allowing the printer to continue building the p
 
 *Note: ChromaSave is fully compatible with and complementary to the configurable parameters in OrcaSlicer designed to reduce waste during color changes—such as "Flush into objects' infill", "Flush into objects' support", and "Flush into this object".*
 
-## 🚀 Key Features
+## ✨ Key Features
 
-*   **Fully Adjustable:** Complete control over your cutting distances, safety margins, and targeted purge zones.
-*   **Smart Purge Calculation:** ChromaSave calculates the purge with millimeter precision using OrcaSlicer's Volume Matrix.
-*   **Smart Telemetry (Klipper):** Sends live color transition and purge calculation details directly to your Mainsail/Fluidd console.
-*   **Native API Integration:** Pulls filament diameters, densities, and hex colors directly from OrcaSlicer.
-*   **Detailed Savings Reports:** Generates an end-of-file report detailing real waste, useful weight, and your precise KPI recovery rates via native UI notifications.
-*   **Flexible Deployment:** Built primarily as a native plugin for OrcaSlicer (v2.1.0+), but also available as a standalone post-processing script.
+* **Early-Cut Optimization:** Retroactively places filament cut commands (`M620.11` / `T<n>`) inside authorized internal zones before the scheduled toolchange, consuming the melt-zone plug inside the part or prime tower.
+* **Strict Safety Zones (`SAFETY_ZONES`):** Guarantees cuts never occur on visible surfaces (`Outer wall`, `Top surface`, `Overhang wall`, `Bridge`) to prevent color bleeding or surface artifacts.
+* **Hybrid & Bucket-Only Purge Modes:**
+  * `hybrid`: Combines early-cut consumption + prime tower extrusion + static chute purging, skipping chute purges entirely (`SKIP PURGE`) when the prime tower already covers the flush matrix requirement.
+  * `bucket_only`: Deducts early-cut savings directly from the chute purge volume.
+* **Minimum Saving Threshold (`min_saving`):** Skips early cuts when the recoverable filament is below a configurable threshold (default: `3.0 mm`), preventing unnecessary cutter wear.
+* **Full Physicochemical Accounting:** Parses OrcaSlicer's `flush_volumes_matrix`, `flush_multiplier`, filament diameters, and densities to generate an itemized consumption and savings report at the end of every G-code file and in `chromasave_history.log`.
 
-## 📋 Requirements
+---
 
-*   **Firmware:** Klipper.
-*   **Multicolor System:** Developed and tested with Coprint3D’s ChromaHead. Applicable to other single-nozzle multicolor systems, though manual configuration and testing are required.
+## Prerequisites
+* **OrcaSlicer** (v2.5.0+).
+* **Open Source 3D Printer** with Klipper and CoPrint3D ChromaHead. 
+* **Bambu Lab Printer** with AMS or AMS Lite (e.g., A1, A1 Mini, P1P, P1S, X1C).
+* **Prime Tower Enabled:** Strongly recommended (`Process -> Others -> Prime tower -> Enable`) for optimal color transition stability, especially on Layer 1.
+
 
 ## 🛠️ Setup & Installation
 
@@ -76,15 +90,19 @@ Go to the **Config** tab in Plugin Window and configure the default ChromaSave p
     "Overhang wall": false,
     "Prime tower": true,
     "Skirt": true,
+    "Solid infill": true,
     "Sparse infill": true,
     "Support": true,
     "Support interface": false,
-    "Top surface": false
+    "Top surface": false,
+    "Wipe tower": true
   },
   "aipc": true,
   "len": 64.857,
+  "min_saving": 3,
   "purge_target": "hybrid",
   "rem": 5,
+  "skip_purge": 2,
   "sm": 20,
   "sre": true
 }
@@ -99,12 +117,20 @@ Go to the **Config** tab in Plugin Window and configure the default ChromaSave p
 *   `SAFETY_ZONES`: The G-code zones where you allow ChromaSave to trigger the cut and filament-change command.
 *   `aipc`: Avoid in Piece Cut (true/false) – Prevents the `FILAMENT_CHANGE` command within aesthetic zones.
 *   `len`: Remaining length (in mm) between the cutter and the hotend tip. (e.g., ChromaHead Nozzle volume (156mm³) = 64.857mm of filament for 1.75mm diameter).
+* `min_saving`: Minimum filament saving (mm) required to trigger an early-cut. 
 *   `purge_target`: `"hybrid"` or `"bucket_only"` - Defines where the residual purge is directed (hybrid compensates with the wipe tower).
 *   `rem`: Retraction margin (in mm) – Safely relocates the `FILAMENT_CHANGE` command.
+* `skip_purge` - Minimum length in mm of purge to skip dynamic purge process.
 *   `sm`: Safety margin (in mm) to prevent color mixing. For the ChromaHotend, a value of less than 20 mm results in color mixing (corresponds to the length of the hotend block).
 *   `sre`: Search Retraction (true/false) - Looks for a retraction command to relocate the `FILAMENT_CHANGE` command within the tolerance window. Must be active with `aipc`.
 
-### 3. Klipper Macro Setup
+
+
+## 🚀 How to Use with Klipper 3D Printers (OrcaSlicer)
+
+ChromaSave v1.1.0 integrates directly into **OrcaSlicer's Slicing Pipeline Plugin** system (`slicing_pipeline_plugin`).
+
+### 1. Klipper Macro Setup
 1. Download the [SmartPurge.cfg](./klipper_configs/) macro and upload it to your printer's Klipper configuration folder (usually `~/printer_data/config/`).
 2. Inside `SmartPurge.cfg`, adjust the coordinates (`variable_purge_x`, `variable_purge_y`, `variable_wipe_dist`) to match your real physical bucket/brush locations.
 3. Ensure you include this config file in your main `printer.cfg` with the following line:
@@ -114,7 +140,7 @@ Go to the **Config** tab in Plugin Window and configure the default ChromaSave p
 
 *Note: Inside `SmartPurge.cfg` there is an optimized `FILAMENT_CHANGE` macro. If you want use it you must comment or delete the factory `FILAMENT_CHANGE` in `cp_macro.cfg` file. If you don't want to use the optimized macro asure to adapt `SmartPurge.cfg`according to your needs.*
 
-### 4. OrcaSlicer Profile Adjustments
+### 2. OrcaSlicer Profile Adjustments
 **Filament Settings:**
 For every filament in OrcaSlicer, go to the filament settings, navigate to the **Advanced** tab, and add the macro call in the *Filament start G-code* section:
 ```gcode
@@ -138,7 +164,7 @@ FILAMENT_CHANGE LAYER_NUM=[layer_num] NEXT_EXTRUDER=[next_extruder] MATERIAL=[fi
   <img src="assets/filament_change.png" width="800" alt="FILAMENT_CHANGE CALL">
 </p>
 
-## 📈 Usage
+### 3. Usage
 
 Go to the **Others** tab in your process profile, scroll down to the **Slicing Pipeline Plugin** section, add the ChromaSave Plugin, and click on **Configure** to setting up the ChromaSave Plugin parameters:
 
@@ -157,6 +183,59 @@ Slice, print, or save your G-code file as usual. Once the slicing pipeline finis
   <img src="assets/report_v2.png" width="400" alt="ChromaSave Report">
 </p>
 
+## 🚀 How to Use with Bambu Lab Printers (OrcaSlicer)
+
+### 1. Installation
+1. Download the `chromasave-1.1.0-beta-py3-none-any` plugin package from the [Releases](../../releases) page.
+2. Open **OrcaSlicer** and navigate to your plugin manager / pipeline settings.
+3. Install and enable **`ChromaSave`**.
+
+### 2. Recommended Configuration Parameters
+In the plugin configuration overrides inside OrcaSlicer, configure the parameters according to your hotend's melt-zone length (`len`):
+
+| Parameter | Recommended Value (Bambu A1 / P1 / X1) | Description |
+| :--- | :--- | :--- |
+| **`len`** | `38.249` / `44.485` / `44.485` mm *(adjust to your cutter-to-nozzle distance)* | Residual filament length below the cutter blade (`mm`). |
+| **`sm`** | `15.0` mm | Safety margin subtracted from `len` (`TARGET = len - sm`) to prevent premature color bleed on walls. |
+| **`purge_target`** | `hybrid` | Uses Prime Tower + Chute dynamically. Set to `bucket_only` if printing without a prime tower. |
+| **`min_saving`** | `3.0` mm | Minimum filament saving required to trigger an Early-Cut. |
+| **`skip_purge`** | `2.0` mm | If net chute purge is below this value, replaces pulsatile flushing with a `0.5 mm` prime. |
+| **`sre`** | `true` | Snaps cuts to existing retractions and Z-hops when available within `rem` (`5.0 mm`). |
+| **`aipc`** | `true` | Enforces `SAFETY_ZONES` so cuts only occur in hidden internal features. |
+
+### 3. Slicing & Verification
+1. Slice your multi-color model as usual in OrcaSlicer.
+2. Export the G-code file. ChromaSave will automatically post-process the G-code and append a **GLOBAL REPORT** summary block at the bottom of the file.
+3. Preview the generated G-code in OrcaSlicer's G-code viewer to verify travel paths before printing.
+
+---
+
+## 🔬 Beta Testing Observations & What to Watch For (Bambu Lab)
+
+Because Bambu Lab printers run proprietary closed-source firmware, we are specifically monitoring **three firmware-level behaviors** during this beta phase. If you test this on a Bambu Lab machine, please pay close attention to:
+
+1. **AMS / AMS Lite State Machine during `Chute Re-route` (`M620` / `M621`):**
+   * In `hybrid` mode, when an Early-Cut occurs inside the part, ChromaSave opens `M620 S<n>A`, executes the cut and `T<n>` filament swap, closes `M621 S<n>A` to return to the print bed, and later re-opens `M620 S<n>A` -> `M628` / `M629` -> `M621 S<n>A` at the chute to purge any remaining transition volume without re-issuing `T<n>`.
+   * **What to report:** Does the printer execute this second chute purge smoothly, or does the firmware throw an AMS synchronization warning / filament change error?
+2. **Static Purge Temperature (`M109` Bypass):**
+   * To save time and prevent filament cooking, ChromaSave replaces OrcaSlicer's multi-pulse `FLUSH_START` blocks (which heat up to `flush_temperatures`, e.g., 280 °C for ABS) with a single constant-rate `G1 E<qty> F300` purge at the active layer's printing temperature (e.g., 260–270 °C).
+   * **What to report:** Watch for any extruder clicking or partial clogging during high-volume dark-to-light transitions (e.g., Black to White/Yellow) at standard print temperatures.
+3. **First-Layer Transition (`[OMITTED: INIT]`):**
+   * The very first toolchange of a print never performs an Early-Cut (`[OMITTED: INIT]`) to protect bed adhesion and initialization routines. When using a standard Prime Tower, Layer 1 tower extrusion typically absorbs the full transition matrix volume and triggers `SKIP PURGE` at the chute.
+   * **What to report:** Verify that the first color transition on Layer 1 is completely clean before the nozzle touches the model.
+
+---
+
+## How to Submit Beta Feedback
+
+If you encounter any issues, firmware warnings, or have successful print results to share, please open an issue on GitHub with:
+1. **Printer Model & Firmware Version** (e.g., Bambu Lab A1 v01.04.xx with AMS Lite).
+2. **Material(s) & Profile** (e.g., PLA / ABS / PETG, Nozzle size).
+3. **The `GLOBAL REPORT` block** from the end of your processed `.gcode` file (and `chromasave_history.log` if available).
+4. **Description of behavior** (especially around Early-Cut return travels and chute purges).
+
+---
+
 
 ## 💡 Recommendations
 
@@ -172,3 +251,9 @@ If you like this tool and it has helped you save some filament, consider buying 
 
 **Copyright (C) 2026 Luis Miguel Lara (deathstroke-co)**  
 Licensed under the GNU AGPLv3. See the `LICENSE` file for more details.
+
+
+## 📄 License
+
+This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)** — see the [LICENSE](LICENSE) file for details.  
+Copyright (C) 2026 **Luis Miguel Lara** (`deathstroke-co`).

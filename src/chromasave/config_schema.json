@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ChromaSave SmartPurge Configuration",
+  "description": "Post-processing optimization for early filament cutting and dynamic purge reduction.",
+  "type": "object",
+  "properties": {
+    "len": {
+      "type": "number",
+      "title": "Remaining Length - Cutter to Nozzle (mm)",
+      "description": "Filament length between the cutter blade and the nozzle tip (e.g., 64.857 mm for ChromaHead, ~38.25 mm for Bambu Lab A1).",
+      "default": 64.857,
+      "minimum": 1.0,
+      "maximum": 250.0
+    },
+    "sm": {
+      "type": "number",
+      "title": "Safety Margin (mm)",
+      "description": "Safety buffer subtracted from the remaining length to prevent premature color transitions on the model.",
+      "default": 10.0,
+      "minimum": 0.0,
+      "maximum": 100.0
+    },
+    "min_saving": {
+      "type": "number",
+      "title": "Minimum Saving Threshold (mm)",
+      "description": "Minimum filament saving required to execute an early-cut. Savings below this value are omitted to avoid unnecessary travel moves.",
+      "default": 3.0,
+      "minimum": 0.0,
+      "maximum": 50.0
+    },
+    "skip_purge": {
+      "type": "number",
+      "title": "Skip Purge Threshold (mm)",
+      "description": "Minimum residual purge length in the bucket/chute. Values below this threshold will skip the dynamic purge macro.",
+      "default": 2.0,
+      "minimum": 0.0,
+      "maximum": 50.0
+    },
+    "purge_target": {
+      "type": "string",
+      "title": "Purge Target Mode",
+      "description": "Hybrid discounts the prime/wipe tower volume from the total purge required. Bucket Only sends all required purge to the waste chute/bucket.",
+      "enum": ["hybrid", "bucket_only"],
+      "enumNames": ["Hybrid (Tower + Bucket)", "Bucket Only"],
+      "default": "hybrid"
+    },
+    "sre": {
+      "type": "boolean",
+      "title": "Search Retractions for Cut Relocation",
+      "description": "Prioritize existing retraction moves and Z-hops within the tolerance window to hide the toolchange seam.",
+      "default": true
+    },
+    "rem": {
+      "type": "number",
+      "title": "Retraction Search Margin (mm)",
+      "description": "Tolerance window before the target length to lock onto a retraction command.",
+      "default": 5.0,
+      "minimum": 0.0,
+      "maximum": 50.0
+    },
+    "aipc": {
+      "type": "boolean",
+      "title": "Avoid In-Piece Cut on Aesthetic Zones",
+      "description": "Restrict early-cuts exclusively to the active Safety Zones defined below.",
+      "default": true
+    },
+    "SAFETY_ZONES": {
+      "type": "object",
+      "title": "Allowed Safety Zones for Early-Cut",
+      "description": "Enable the print features where ChromaSave is allowed to execute an early filament cut.",
+      "properties": {
+        "Prime tower": { "type": "boolean", "title": "Prime tower", "default": true },
+        "Wipe tower": { "type": "boolean", "title": "Wipe tower (Bambu Lab)", "default": true },
+        "Support": { "type": "boolean", "title": "Support", "default": true },
+        "Support interface": { "type": "boolean", "title": "Support interface", "default": true },
+        "Sparse infill": { "type": "boolean", "title": "Sparse infill", "default": true },
+        "Dense infill": { "type": "boolean", "title": "Dense infill", "default": true },
+        "Solid infill": { "type": "boolean", "title": "Solid infill", "default": true },
+        "Internal solid infill": { "type": "boolean", "title": "Internal solid infill", "default": false },
+        "Skirt": { "type": "boolean", "title": "Skirt", "default": false },
+        "Brim": { "type": "boolean", "title": "Brim", "default": false },
+        "Gap fill": { "type": "boolean", "title": "Gap fill", "default": false },
+        "Outer wall": { "type": "boolean", "title": "Outer wall", "default": false },
+        "Inner wall": { "type": "boolean", "title": "Inner wall", "default": false },
+        "Overhang wall": { "type": "boolean", "title": "Overhang wall", "default": false },
+        "Top surface": { "type": "boolean", "title": "Top surface", "default": false },
+        "Bottom surface": { "type": "boolean", "title": "Bottom surface", "default": false },
+        "Internal bridge": { "type": "boolean", "title": "Internal bridge", "default": false },
+        "Bridge": { "type": "boolean", "title": "Bridge", "default": false },
+        "Custom": { "type": "boolean", "title": "Custom G-code", "default": false }
+      }
+    }
+  }
+}

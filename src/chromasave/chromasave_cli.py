@@ -62,26 +62,27 @@ if __name__ == "__main__":
 
     parser.add_argument('--skip_purge', type=float, default=2.0, help='skip_purge - Minimum length in mm of purge to skip dynamic purge process')
     
+    parser.add_argument('--min_saving', '--min-saving', '-ms', dest='min_saving', type=float, default=3.0, help='Minimum filament saving (mm) required to trigger an early-cut (Default: 3.0)')
+
     parser.add_argument('--aipc', action='store_true', help='Enable - Avoid in Piece Cut - to prevent FILAMENT_CHANGE command within aesthetic zone.')
     parser.add_argument('--no-aipc', action='store_false', dest='aipc', help='Disable - Avoid in Piece Cut -')
     parser.set_defaults(aipc=True) # Default is True
 
-    #Purge Destination ("hybrid" by default, "bucket_only" as alternative)
+    # Purge Destination ("hybrid" by default, "bucket_only" as alternative)
     parser.add_argument('--purge_target', type=str, choices=['hybrid', 'bucket_only'], default='hybrid', help='Define where the residual purge is directed (hybrid compensates with wipe tower).')
     
     parser.add_argument('--console', action='store_true', help='Enable - Run in console - To run in console. Gcode file saved in folder to manual upload to Mainsail.')
     parser.add_argument('--no-console', action='store_false', dest='console', help='Disable - Run in console - Overwrite OrcaSlicer temporal file')
     parser.set_defaults(console=True) # Default is True
-    
+
     SAFETY_ZONES = {
-        # 
-        "Prime tower": True,            
+        "Prime tower": True,
+        "Wipe tower": True,             # Nomenclature of Bambu Lab          
         "Support": True,                
         "Support interface": True,      
         "Sparse infill": True,          
         "Dense infill": True,           
-        
-        # 
+        "Solid infill": True,           # Standard nomenclature of Orca
         "Internal solid infill": False, 
         "Skirt": False,                
         "Brim": False,                  
@@ -96,13 +97,12 @@ if __name__ == "__main__":
         "Custom": False                 
     }
     
-
     parser.add_argument(
         '--dzones',
         action='append',
         choices=list(SAFETY_ZONES.keys()), # Allow only valid values
-        help="Zones that you want disable - can be several (Prime tower, Support, Support interface, Sparse infill, \
-            Dense infill, Internal solid infill, Skirt, Brim, Gap fill, Outer wall, Inner wall, Overhang wall, Top surface, \
+        help="Zones that you want disable - can be several (Prime tower, Wipe tower, Support, Support interface, Sparse infill, \
+            Dense infill, Solid infill, Internal solid infill, Skirt, Brim, Gap fill, Outer wall, Inner wall, Overhang wall, Top surface, \
             Bottom surface, Internal bridge, Bridge, Custom)"
     )
     
