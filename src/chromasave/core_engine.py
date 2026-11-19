@@ -958,7 +958,7 @@ def filament_change_optimizer(config):
     report_str = (
         "\n"
         " ==================================================================================\n"
-        " GLOBAL REPORT (ChromaSave v1.1.0-beta.2)\n"
+        " GLOBAL REPORT (ChromaSave v1.1.0-beta.1)\n"
         " ==================================================================================\n"
         f"  Purge Target Mode:                               {PURGE_TARGET.upper()}\n"
         " ----------------------------------------------------------------------------------\n"
@@ -990,7 +990,7 @@ def filament_change_optimizer(config):
     )
 
     report_orca = (
-            " GLOBAL REPORT (ChromaSave v1.1.0-beta.2)\n"
+            " GLOBAL REPORT (ChromaSave v1.1.0-beta.1)\n"
             f"Purge Target Mode:            {PURGE_TARGET.upper()}\n"
             "Color Changes\n"
             f" Total Changes:               {len(changes)}\n"
