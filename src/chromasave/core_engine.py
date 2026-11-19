@@ -651,14 +651,20 @@ def filament_change_optimizer(config):
                 t_num = c.get("t_idx", 0)
                 safe_z = cut_z + 3.0
 
-                # Filter out pre-M620 Z-hop moves (e.g., spiral G3 Z... or G1 Z...) from the
-                # Early-Cut preamble since ChromaSave already lifts to safe_z before cutting.
+
+                # Filter out pre-M620 Z-hop moves and defer state-changing commands
+                # (M104 temperature and M1007 S0 mass estimation) to the original Chute Re-route.
                 filtered_block = []
+                deferred_origin_cmds = []
                 seen_m620 = False
                 for b_line in block:
-                    if b_line.startswith("M620"):
+                    stripped = b_line.strip()
+                    if stripped.startswith("M620"):
                         seen_m620 = True
-                    if not seen_m620 and b_line.startswith(("G1 ", "G2 ", "G3 ")) and "Z" in b_line:
+                    if not seen_m620 and stripped.startswith(("G1 ", "G2 ", "G3 ")) and "Z" in stripped:
+                        continue
+                    if stripped.startswith("M104 ") or stripped.startswith("M1007 S0"):
+                        deferred_origin_cmds.append(b_line)
                         continue
                     filtered_block.append(b_line)
 
@@ -702,6 +708,7 @@ def filament_change_optimizer(config):
 
                 insertions[c["origin"]].extend([
                     "; --- ChromaSave Chute Re-route ---\n",
+                    *deferred_origin_cmds,
                     f"G1 Z{origin_safe_z:.3f} F1200\n",
                     *chute_travel_cmds,
                     f"M620 S{t_num}A\n",
@@ -750,14 +757,69 @@ def filament_change_optimizer(config):
             obs_text = f"Active: T{curr_t_idx} [{curr_type} {curr_color}] (Purging T{prev_t_idx} [{prev_type} {prev_color}] {c['calculate_quantity']:.2f} mm) | Matrix: {flush_val:.1f} mm3 ({flush_val/area:.2f} mm) | Tower: {c['tower_e_mm']:.1f} mm"
 
             if is_bambu_lab:
+                # 1. Preserve setup commands (M1002, M109, M106, M400) from the first FLUSH block
+                flush_header_cmds = []
+                first_flush_end = p_end
+                for k in range(p_start + 1, p_end + 1):
+                    s_line = lines[k].strip()
+                    if re_flush_end.search(lines[k]):
+                        first_flush_end = k
+                        break
+                    if s_line.startswith(("M1002 ", "M109 ", "M106 ", "M400")):
+                        flush_header_cmds.append(lines[k])
+
+                # 2. Extract original inter-flush wipe routine if present, or synthesize one via wiper_x
+                wipe_between_cmds = []
+                if first_flush_end < p_end:
+                    for k in range(first_flush_end + 1, p_end + 1):
+                        if re_flush_start.search(lines[k]):
+                            break
+                        wipe_between_cmds.append(lines[k])
+
+                if not wipe_between_cmds and c.get("wiper_x") is not None:
+                    wx = c["wiper_x"]
+                    wipe_between_cmds = [
+                        "; ChromaSave Inter-Flush Wipe\n",
+                        "M106 P1 S178\n",
+                        "G4 S2\n",
+                        f"G1 X{wx + 10.0:.1f} F18000\n",
+                        f"G1 X{wx:.1f} F3000\n",
+                        "M106 P1 S60\n"
+                    ]
+
                 for k in range(p_start, p_end + 1):
                     line_to_erase.add(k)
-                    
+
                 net_purge = c['calculate_quantity']
+                header_str = "".join(flush_header_cmds)
+
                 if net_purge < SKIP_PURGE_THRESHOLD:
-                    replacement[p_start] = f"; FLUSH_START\n; {obs_text}\n; ChromaSave SKIP PURGE ({net_purge:.2f}mm < {SKIP_PURGE_THRESHOLD}mm)\nG1 E0.5 F300\n; FLUSH_END\n"
+                    replacement[p_start] = (
+                        f"; FLUSH_START\n"
+                        f"; {obs_text}\n"
+                        f"{header_str}"
+                        f"; ChromaSave SKIP PURGE ({net_purge:.2f}mm < {SKIP_PURGE_THRESHOLD}mm)\n"
+                        f"G1 E0.5 F300\n"
+                        f"; FLUSH_END\n"
+                    )
                 else:
-                    replacement[p_start] = f"; FLUSH_START\n; {obs_text}\n; ChromaSave STATIC PURGE\nG1 E{net_purge:.4f} F300\n; FLUSH_END\n"
+                    MAX_FLUSH_CHUNK = 45.0
+                    num_chunks = max(1, math.ceil(net_purge / MAX_FLUSH_CHUNK))
+                    chunk_len = net_purge / num_chunks
+                    wipe_str = "".join(wipe_between_cmds)
+
+                    purge_blocks = []
+                    for chunk_idx in range(num_chunks):
+                        block_hdr = f"; {obs_text}\n{header_str}" if chunk_idx == 0 else ""
+                        purge_blocks.append(
+                            f"; FLUSH_START\n"
+                            f"{block_hdr}"
+                            f"; ChromaSave STATIC PURGE (Chunk {chunk_idx + 1}/{num_chunks})\n"
+                            f"G1 E{chunk_len:.4f} F300\n"
+                            f"; FLUSH_END\n"
+                        )
+
+                    replacement[p_start] = wipe_str.join(purge_blocks)
             else:
                 match_indent = re.match(r"^(\s*)", lines[p_start])
                 indent = match_indent.group(1) if match_indent else ""
