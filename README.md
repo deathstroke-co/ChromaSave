@@ -13,10 +13,15 @@
 
 By performing **Early Filament Cutting** inside safe internal regions of the model (such as sparse infill, internal solid infill, supports, or the prime tower) and tracking residual melt-zone volume, ChromaSave consumes the remaining filament before the nozzle ever reaches the purge chute.
 
-> ⚠️ **BETA RELEASE NOTICE (`v1.1.0-beta`):**  
-> This release introduces experimental support for **Bambu Lab printers (AMS / AMS Lite)** alongside our validated Klipper multi-extruder workflow. While the G-code kinematics, Z-hop safety clearances, and volumetric calculations have been thoroughly audited in simulation, **Bambu Lab support requires physical hardware validation**. We are actively looking for Bambu Lab beta testers to run test prints and report feedback!
+## What's New in v1.1.0-beta.2 (Bambu Lab Compatibility Update)
 
----
+This beta release improves reliability and thermal safety for Bambu Lab printers (tested on A1 / A1 Mini G-code) while using both `hybrid` and `bucket_only` purge modes:
+
+* **Safe Multi-Chunk Purging:** Purges exceeding `45.0 mm` are now automatically split into equal chunks separated by inter-flush wipe routines (reusing native OrcaSlicer `; WIPE` sequences or synthesizing a safe wipe using the dynamically detected chute coordinate) to prevent purge chute clogs[cite: 16].
+* **Flush Temperature & Header Preservation:** Preserves `M1002`, `M109`, `M106`, and `M400` setup commands from the first flush block so filament purging always runs at the configured flush temperature[cite: 16].
+* **Early-Cut State Isolation:** Defers `M104` (nozzle temperature) and `M1007 S0` (mass estimation) from the Early-Cut injection back to the original `Chute Re-route` position, preventing premature temperature changes on previous layers—especially critical for multi-material prints[cite: 16].
+
+> **Note for Beta Testers:** Please monitor the first few toolchanges during physical prints on A1/A1 Mini and report any chute wipe or thermal behavior issues via GitHub Issues.
 
 ## 🧠 The Concept
 
