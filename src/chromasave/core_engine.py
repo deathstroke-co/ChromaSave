@@ -364,6 +364,7 @@ def filament_change_optimizer(config):
             # Capture ALL purge pulses (from the FIRST FLUSH_START to the LAST FLUSH_END)
             idx_purge_start = -1
             idx_purge_end = -1
+            wiper_x = None
             if is_bambu_lab:
                 for j in range(origin, min(tc_block_end + 50, total_lines)):
                     if "; CP TOOLCHANGE WIPE" in lines[j]:
@@ -373,9 +374,28 @@ def filament_change_optimizer(config):
                             idx_purge_start = j
                     elif re_flush_end.search(lines[j]):
                         idx_purge_end = j
-                # In Bambu Lab, the tool change/cut block ends right before FLUSH_START or WIPE
+
+                # Dynamically detect the negative X wiper/chute parking position (e.g., X-48.2 on A1)
+                # from the post-flush wipe sequence to avoid hardcoding cutter coordinates.
+                if idx_purge_end != -1:
+                    for j in range(idx_purge_end + 1, min(tc_block_end + 1, total_lines)):
+                        if lines[j].startswith("M621"):
+                            break
+                        if lines[j].startswith(("G1 ", "G0 ")) and "X" in lines[j]:
+                            mx_w = re_coord_x.search(lines[j])
+                            if mx_w:
+                                val_x = float(mx_w.group(1))
+                                if val_x < 0.0 and (wiper_x is None or val_x < wiper_x):
+                                    wiper_x = val_x
+
+                # In Bambu Lab, end the Early-Cut block BEFORE M628 S0 so the flush state
+                # is not left open during subsequent model/tower printing moves.
                 if idx_purge_start != -1:
                     end_move = idx_purge_start - 1
+                    for j in range(idx_purge_start - 1, origin, -1):
+                        if lines[j].strip().startswith("M628 S0"):
+                            end_move = j - 1
+                            break
                 elif wipe_sub_start != -1:
                     end_move = wipe_sub_start - 1
                 else:
@@ -396,6 +416,7 @@ def filament_change_optimizer(config):
                 "wipe_sub_start": wipe_sub_start,
                 "idx_purge_start": idx_purge_start,
                 "idx_purge_end": idx_purge_end,
+                "wiper_x": wiper_x,
                 "tool": current_tool,
                 "t_idx": t_idx,
                 "tower_e_mm": 0.0
@@ -620,19 +641,33 @@ def filament_change_optimizer(config):
             block = lines[c["origin"] : c["end_move"] + 1]
 
             if is_bambu_lab:
-                cut_x = state_x[c["cut_index"]]
-                cut_y = state_y[c["cut_index"]]
-                cut_z = state_z[c["cut_index"]]
-                cut_f = state_f[c["cut_index"]]
+                # Use the state right BEFORE cut_index so Return Travel restores the exact
+                # starting point of the next move (prevents 360-degree circles on G2/G3 arcs).
+                prev_idx = max(0, c["cut_index"] - 1)
+                cut_x = state_x[prev_idx]
+                cut_y = state_y[prev_idx]
+                cut_z = state_z[prev_idx]
+                cut_f = state_f[prev_idx]
                 t_num = c.get("t_idx", 0)
                 safe_z = cut_z + 3.0
-                
-                # 1. In cut_index: Execute filament change and close temporary state to print the remainder
+
+                # Filter out pre-M620 Z-hop moves (e.g., spiral G3 Z... or G1 Z...) from the
+                # Early-Cut preamble since ChromaSave already lifts to safe_z before cutting.
+                filtered_block = []
+                seen_m620 = False
+                for b_line in block:
+                    if b_line.startswith("M620"):
+                        seen_m620 = True
+                    if not seen_m620 and b_line.startswith(("G1 ", "G2 ", "G3 ")) and "Z" in b_line:
+                        continue
+                    filtered_block.append(b_line)
+
+                # 1. At cut_index: Execute filament change and close temporary state to print the remainder
                 insertions[c["cut_index"]].extend([
                     "; --- ChromaSave Bambu Early-Cut ---\n",
                     f"G1 Z{safe_z:.3f} F1200\n"
                 ])
-                insertions[c["cut_index"]].extend(block)
+                insertions[c["cut_index"]].extend(filtered_block)
                 insertions[c["cut_index"]].extend([
                     f"M621 S{t_num}A\n",
                     "M220 R\n",
@@ -644,12 +679,31 @@ def filament_change_optimizer(config):
                     "G92 E0\n",
                     "; --------------------------------\n"
                 ])
-                
-                # 2. In origin: Travel safely to the chute and reopen M620 to purge and clean the nozzle
+
+                # 2. At origin: Travel safely to the detected purge wiper/chute and reopen M620
+                wiper_x = c.get("wiper_x")
+                if wiper_x is not None:
+                    # Bambu Lab A1 / A1 Mini: approach the left purge wiper smoothly
+                    chute_travel_cmds = [
+                        f"G1 X{wiper_x + 10.0:.1f} F18000\n",
+                        f"G1 X{wiper_x:.1f} F3000\n"
+                    ]
+                else:
+                    # Fallback for X1 / P1 series or other Bambu models
+                    p_ref = c["idx_purge_start"] if c["idx_purge_start"] != -1 else c["origin"]
+                    chute_travel_cmds = [
+                        f"G1 X{state_x[p_ref]:.1f} Y{state_y[p_ref]:.1f} F18000\n"
+                    ]
+
+                # Use the actual Z height right before origin to prevent downward Z collisions
+                # when Early-Cut backtracks across multiple layers.
+                origin_z = state_z[max(0, c["origin"] - 1)]
+                origin_safe_z = max(safe_z, origin_z + 3.0)
+
                 insertions[c["origin"]].extend([
                     "; --- ChromaSave Chute Re-route ---\n",
-                    f"G1 Z{safe_z:.3f} F1200\n",
-                    "G1 X267 Y128 F18000\n",
+                    f"G1 Z{origin_safe_z:.3f} F1200\n",
+                    *chute_travel_cmds,
                     f"M620 S{t_num}A\n",
                     "G92 E0\n",
                     "; ---------------------------------\n"
@@ -842,7 +896,7 @@ def filament_change_optimizer(config):
     report_str = (
         "\n"
         " ==================================================================================\n"
-        " GLOBAL REPORT (ChromaSave v1.1.0-beta)\n"
+        " GLOBAL REPORT (ChromaSave v1.1.0-beta.2)\n"
         " ==================================================================================\n"
         f"  Purge Target Mode:                               {PURGE_TARGET.upper()}\n"
         " ----------------------------------------------------------------------------------\n"
@@ -874,7 +928,7 @@ def filament_change_optimizer(config):
     )
 
     report_orca = (
-            " GLOBAL REPORT (ChromaSave v1.1.0)\n"
+            " GLOBAL REPORT (ChromaSave v1.1.0-beta.2)\n"
             f"Purge Target Mode:            {PURGE_TARGET.upper()}\n"
             "Color Changes\n"
             f" Total Changes:               {len(changes)}\n"
