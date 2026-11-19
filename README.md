@@ -7,13 +7,13 @@
   ![Platform](https://img.shields.io/badge/platform-OrcaSlicer%20%7C%20Klipper-orange.svg)
 </div>
 
-# ChromaSave-SmartPurge (v1.1.0-beta)
+# ChromaSave (v1.1.0-beta.1)
 
 **ChromaSave** is an open-source post-processing plugin and CLI tool for **OrcaSlicer** designed to minimize multi-color filament purge waste in 3D printers equipped with single-head, multi-color systems—such as the ChromaSet and KCM-Set systems from Coprint3D, which utilize the ChromaHead print head.
 
 By performing **Early Filament Cutting** inside safe internal regions of the model (such as sparse infill, internal solid infill, supports, or the prime tower) and tracking residual melt-zone volume, ChromaSave consumes the remaining filament before the nozzle ever reaches the purge chute.
 
-## What's New in v1.1.0-beta.2 (Bambu Lab Compatibility Update)
+## What's New in v1.1.0-beta.1 (Bambu Lab Compatibility Update)
 
 This beta release improves reliability and thermal safety for Bambu Lab printers (tested on A1 / A1 Mini G-code) while using both `hybrid` and `bucket_only` purge modes:
 
