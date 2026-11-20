@@ -59,7 +59,7 @@ def filament_change_optimizer(config):
         with open(config.filepath, 'r', encoding='utf-8') as file:
             lines = file.readlines()
     except FileNotFoundError:
-        print(f"Post-Processing Error: The file dosen't exist in the path {config.filepath}", file=sys.stderr)
+        print(f"Post-Processing Error: The file doesn't exist in the path {config.filepath}", file=sys.stderr)
         sys.exit(1)
     except PermissionError:
         print(f"Post-Processing Error: No permission to open the file: {config.filepath}", file=sys.stderr)
@@ -124,11 +124,13 @@ def filament_change_optimizer(config):
     re_layer_comment = re.compile(r"^;\s*(?:LAYER:|layer_num\s*=)\s*(-?\d+)", re.IGNORECASE)
     re_tool = re.compile(r"^(T\d+)")
     re_bambu_tool = re.compile(r"^M620\s+S(\d+)")
+    re_bambu_long_retract = re.compile(r"^M620\.11\s+S1\b")
     re_purge = re.compile(r"^\s*PURGE_IN_TRASH")
     re_type = re.compile(r"^;\s*(?:TYPE|FEATURE|_EXTRUSION_ROLE):\s*(.+)", re.IGNORECASE)
     re_wipe_start = re.compile(r"^;\s*(?:CP TOOLCHANGE WIPE|WIPE_TOWER_START)", re.IGNORECASE)
     re_wipe_end = re.compile(r"^;\s*(?:CP TOOLCHANGE END|WIPE_TOWER_END)", re.IGNORECASE)
     re_e_reset = re.compile(r"E(-?[0-9]*\.?[0-9]+)")
+    re_accel = re.compile(r"^M204\s+S([0-9]*\.?[0-9]+)")
     
     re_fmatrix = re.compile(r"^\s*; flush_volumes_matrix = (.+)")
     re_gmultiplier = re.compile(r"^\s*; flush_multiplier = (.+)")
@@ -138,6 +140,10 @@ def filament_change_optimizer(config):
     re_gtype = re.compile(r"^\s*; filament_type = (.+)")
     re_gmin_purge = re.compile(r"^\s*; filament_minimal_purge_on_wipe_tower = (.+)")
     re_gprime_volume = re.compile(r"^\s*; prime_volume = (.+)")
+    re_long_retract_cut = re.compile(r"^\s*; filament_long_retractions_when_cut = (.+)")
+    re_global_long_retract_cut = re.compile(r"^\s*; long_retractions_when_cut = (.+)")
+    re_nozzle_temp = re.compile(r"^\s*; nozzle_temperature = (.+)")
+    re_nozzle_temp_init = re.compile(r"^\s*; nozzle_temperature_initial_layer = (.+)")
     
     total_lines = len(lines)
     line_extrusions = [0.0] * total_lines
@@ -158,11 +164,17 @@ def filament_change_optimizer(config):
     state_y = [0.0] * total_lines
     state_z = [0.0] * total_lines
     state_f = [0.0] * total_lines
+    state_accel = [0.0] * total_lines
     
-    current_x, current_y, current_z, current_f = 0.0, 0.0, 0.0, 0.0
+    current_x, current_y, current_z, current_f, current_accel = 0.0, 0.0, 0.0, 0.0, 0.0
     is_bambu_lab = False
     initial_tool_idx = None
     first_tc_seen = False
+
+    long_retract_cut_flags = []
+    global_long_retract_cut = 0
+    nozzle_temps = []
+    nozzle_temps_init = []
 
     re_bambu_tc_start = re.compile(r"^;\s*CP TOOLCHANGE START")
     re_bambu_tc_end = re.compile(r"^;\s*CP TOOLCHANGE END")
@@ -243,18 +255,21 @@ def filament_change_optimizer(config):
         my = re_coord_y.search(line)
         mz = re_coord_z.search(line)
         mf = re_feedrate.search(line)
+        ma = re_accel.search(line)
         
         if mx: current_x = float(mx.group(1))
         if my: current_y = float(my.group(1))
         if mz: current_z = float(mz.group(1))
         if mf: current_f = float(mf.group(1))
+        if ma: current_accel = float(ma.group(1))
         
         state_x[i] = current_x
         state_y[i] = current_y
         state_z[i] = current_z
         state_f[i] = current_f
+        state_accel[i] = current_accel
                 
-        # API Fallback
+        # API Fallback & Config Block Parsing
         if not hasattr(config, "flush_multiplier") and "; flush_multiplier =" in line:
             m = re_gmultiplier.search(line)
             if m: config.flush_multiplier = float(m.group(1).strip())
@@ -279,6 +294,19 @@ def filament_change_optimizer(config):
         if not hasattr(config, "prime_volume") and "; prime_volume =" in line:
             m = re_gprime_volume.search(line)
             if m: config.prime_volume = float(m.group(1).strip())
+        if not long_retract_cut_flags and "; filament_long_retractions_when_cut =" in line:
+            m = re_long_retract_cut.search(line)
+            if m: long_retract_cut_flags = [int(n.strip()) for n in m.group(1).split(",") if n.strip().isdigit()]
+        if global_long_retract_cut == 0 and "; long_retractions_when_cut =" in line:
+            m = re_global_long_retract_cut.search(line)
+            if m and m.group(1).strip().isdigit():
+                global_long_retract_cut = int(m.group(1).strip())
+        if not nozzle_temps and "; nozzle_temperature =" in line:
+            m = re_nozzle_temp.search(line)
+            if m: nozzle_temps = [float(n.strip()) for n in m.group(1).split(",") if n.strip()]
+        if not nozzle_temps_init and "; nozzle_temperature_initial_layer =" in line:
+            m = re_nozzle_temp_init.search(line)
+            if m: nozzle_temps_init = [float(n.strip()) for n in m.group(1).split(",") if n.strip()]
             
         if "M82" in line:
             is_absolute_e = True
@@ -376,7 +404,6 @@ def filament_change_optimizer(config):
                         idx_purge_end = j
 
                 # Dynamically detect the negative X wiper/chute parking position (e.g., X-48.2 on A1)
-                # from the post-flush wipe sequence to avoid hardcoding cutter coordinates.
                 if idx_purge_end != -1:
                     for j in range(idx_purge_end + 1, min(tc_block_end + 1, total_lines)):
                         if lines[j].startswith("M621"):
@@ -408,6 +435,16 @@ def filament_change_optimizer(config):
                         idx_purge_end = j
                         break
 
+            # Direct G-code detection of Bambu Lab long retraction when cut (M620.11 S1)
+            has_bambu_lr = any(
+                re_bambu_long_retract.search(lines[k])
+                for k in range(origin, min(end_move + 1, total_lines))
+            )
+
+            slicer_flush_e_mm = 0.0
+            if idx_purge_start != -1 and idx_purge_end != -1:
+                slicer_flush_e_mm = sum(line_extrusions[k] for k in range(idx_purge_start, idx_purge_end + 1))
+
             changes.append({
                 "layer": layer_num,
                 "origin": origin,
@@ -416,6 +453,8 @@ def filament_change_optimizer(config):
                 "wipe_sub_start": wipe_sub_start,
                 "idx_purge_start": idx_purge_start,
                 "idx_purge_end": idx_purge_end,
+                "slicer_flush_e_mm": slicer_flush_e_mm,
+                "has_bambu_lr": has_bambu_lr,
                 "wiper_x": wiper_x,
                 "tool": current_tool,
                 "t_idx": t_idx,
@@ -429,7 +468,6 @@ def filament_change_optimizer(config):
     # EXACT TOWER CALCULATION (Only sums extrusions in the tower within the bed, excluding the chute)
     for idx_change, c in enumerate(changes):
         if is_bambu_lab:
-            # Start searching always after the last FLUSH_END (to capture both CP TOOLCHANGE WIPE and the outer fill)
             start_search = (c["idx_purge_end"] + 1) if c["idx_purge_end"] != -1 else (c["end_move"] + 1)
             chute_x = state_x[c["idx_purge_end"]] if c["idx_purge_end"] != -1 else state_x[c["origin"]]
             chute_y = state_y[c["idx_purge_end"]] if c["idx_purge_end"] != -1 else state_y[c["origin"]]
@@ -447,7 +485,6 @@ def filament_change_optimizer(config):
             t_type = line_types[j]
             if "Prime tower" in t_type or "Wipe tower" in t_type:
                 if is_bambu_lab:
-                    # Geometric filter: ignore any residual extrusion in the chute coordinate
                     if abs(state_x[j] - chute_x) < 1.0 and abs(state_y[j] - chute_y) < 1.0:
                         continue
                     if state_x[j] < 0.0 or state_x[j] > 256.0 or state_y[j] < 0.0 or state_y[j] > 256.0:
@@ -456,9 +493,31 @@ def filament_change_optimizer(config):
                 
         c["tower_e_mm"] = tower_e_mm
         
-    # BACKTRACKING WITH CHRONOLOGICAL PROTECTION
+    # BACKTRACKING WITH CHRONOLOGICAL PROTECTION & UNIVERSAL LONG_RETRACT GUARDRAIL
+    long_retract_warning = False
     for idx_change, c in enumerate(changes):
-        if idx_change < 1:
+        curr_t_idx = c.get("t_idx", 0)
+        fallback_prev = initial_tool_idx if initial_tool_idx is not None else curr_t_idx
+        prev_t_idx = changes[idx_change - 1].get("t_idx", 0) if idx_change > 0 else fallback_prev
+
+        if is_bambu_lab:
+            has_long_retract = c.get("has_bambu_lr", False)
+            lr_source = "M620.11 S1 in toolchange G-code"
+        else:
+            filament_lr_active = (
+                prev_t_idx < len(long_retract_cut_flags)
+                and long_retract_cut_flags[prev_t_idx] == 1
+            )
+            has_long_retract = filament_lr_active or (global_long_retract_cut == 1)
+            lr_source = f"T{prev_t_idx} filament profile" if filament_lr_active else "global printer settings"
+
+        if has_long_retract:
+            candidate_index = c["origin"]
+            candidate_saving = 0.0
+            c["break_flag"] = f"Incompatible: long_retractions_when_cut active ({lr_source}) (Early-cut omitted)"
+            c["status_tag"] = "[OMITTED: LONG_RETRACT]"
+            long_retract_warning = True
+        elif idx_change < 1:
             candidate_index = c["origin"]
             candidate_saving = 0.0
             c["break_flag"] = "Blocked by initialization (0.00 mm)"
@@ -523,7 +582,6 @@ def filament_change_optimizer(config):
                     candidate_saving = e_acumulated
                     
                     if SEARCH_RETRACTIONS and (("G1" in line and "E-" in line) or "G10" in line) and re_retraction.search(line):
-                        
                         if (TARGET - RETRACTION_MARGIN) <= e_acumulated <= TARGET:
                             safe_insert = idx + 1
                             
@@ -581,10 +639,6 @@ def filament_change_optimizer(config):
                 c["break_flag"] = f"{break_flag} ({candidate_saving:.2f} mm)"
             
         # PHYSICOCHEMICAL MODEL INTEGRATED FOR ORCASLICER
-        curr_t_idx = c.get("t_idx", 0)
-        fallback_prev = initial_tool_idx if initial_tool_idx is not None else curr_t_idx
-        prev_t_idx = changes[idx_change - 1].get("t_idx", 0) if idx_change > 0 else fallback_prev
-        
         dia = config.diams[curr_t_idx] if hasattr(config, 'diams') and curr_t_idx < len(config.diams) else getattr(config, 'dia', 1.75)
         area = math.pi * ((dia / 2.0) ** 2)
         
@@ -605,13 +659,16 @@ def filament_change_optimizer(config):
             flush_vol_mm3 = min_purge_limit
         
         c["flush_vol"] = flush_vol_mm3
+        c["prev_t_idx"] = prev_t_idx
         
         target_flush_mm = (flush_vol_mm3 / area) if area > 0 else 0.0
         total_purge_needed_mm = max(target_flush_mm, REMAINING_LENGTH)
         c["total_purge_mm"] = total_purge_needed_mm
         
         # HYBRID VS BUCKET_ONLY LOGIC FOR ORCASLICER
-        if PURGE_TARGET == "hybrid":
+        if is_bambu_lab and c.get("status_tag") == "[OMITTED: LONG_RETRACT]" and c.get("slicer_flush_e_mm", 0.0) > 0.0:
+            calculate_quantity = c["slicer_flush_e_mm"]
+        elif PURGE_TARGET == "hybrid":
             remaining_purge_mm = total_purge_needed_mm - c["tower_e_mm"] - candidate_saving
             calculate_quantity = max(0.0, remaining_purge_mm)
         else: 
@@ -620,6 +677,14 @@ def filament_change_optimizer(config):
         c["cut_index"] = candidate_index
         c["saving"] = candidate_saving
         c["calculate_quantity"] = calculate_quantity
+
+    if long_retract_warning:
+        print(
+            "WARNING [ChromaSave]: 'Long retraction when cut' is enabled in OrcaSlicer (printer or filament settings). "
+            "Early-Cut has been omitted on affected toolchanges because both features compete for the same filament segment. "
+            "Disable 'Long retraction when cut' in your printer/filament settings to enable ChromaSave Early-Cut.",
+            file=sys.stderr
+        )
         
     # CONSTRUCTION AND LABELING OF THE NEW G-CODE
     insertions = { i: [] for i in range(len(lines) + 1) }
@@ -630,6 +695,7 @@ def filament_change_optimizer(config):
     optimized_changes = 0
     omitted_min_saving = 0
     omitted_no_saving = 0
+    omitted_long_retract = 0
 
     SKIP_PURGE_THRESHOLD = getattr(config, 'skip_purge', 2.0)
     
@@ -642,20 +708,28 @@ def filament_change_optimizer(config):
 
             if is_bambu_lab:
                 # Use the state right BEFORE cut_index so Return Travel restores the exact
-                # starting point of the next move (prevents 360-degree circles on G2/G3 arcs).
+                # starting point, acceleration, and temperature of the ongoing print move.
                 prev_idx = max(0, c["cut_index"] - 1)
                 cut_x = state_x[prev_idx]
                 cut_y = state_y[prev_idx]
                 cut_z = state_z[prev_idx]
                 cut_f = state_f[prev_idx]
+                cut_accel = state_accel[prev_idx]
+                cut_layer = line_layers[prev_idx]
                 t_num = c.get("t_idx", 0)
+                prev_t_num = c.get("prev_t_idx", 0)
                 safe_z = cut_z + 3.0
 
+                # Determine exact print temperature to restore for the outgoing filament
+                restore_temp = 0.0
+                if cut_layer <= 1 and prev_t_num < len(nozzle_temps_init):
+                    restore_temp = nozzle_temps_init[prev_t_num]
+                elif prev_t_num < len(nozzle_temps):
+                    restore_temp = nozzle_temps[prev_t_num]
 
-                # Filter out pre-M620 Z-hop moves and defer state-changing commands
-                # (M104 temperature and M1007 S0 mass estimation) to the original Chute Re-route.
+                # Filter out pre-M620 Z-hop moves; keep M1007 S0 in Early-Cut so mass estimation
+                # is properly disabled during the actual AMS cut/load cycle.
                 filtered_block = []
-                deferred_origin_cmds = []
                 seen_m620 = False
                 for b_line in block:
                     stripped = b_line.strip()
@@ -663,52 +737,58 @@ def filament_change_optimizer(config):
                         seen_m620 = True
                     if not seen_m620 and stripped.startswith(("G1 ", "G2 ", "G3 ")) and "Z" in stripped:
                         continue
-                    if stripped.startswith("M104 ") or stripped.startswith("M1007 S0"):
-                        deferred_origin_cmds.append(b_line)
-                        continue
                     filtered_block.append(b_line)
 
-                # 1. At cut_index: Execute filament change and close temporary state to print the remainder
+                # 1. At cut_index: Retract before Z-hop, execute filament change, restore state & return
                 insertions[c["cut_index"]].extend([
                     "; --- ChromaSave Bambu Early-Cut ---\n",
+                    "G1 E-1.6 F1800\n",
                     f"G1 Z{safe_z:.3f} F1200\n"
                 ])
                 insertions[c["cut_index"]].extend(filtered_block)
-                insertions[c["cut_index"]].extend([
+
+                return_cmds = [
                     f"M621 S{t_num}A\n",
+                    "M1007 S1\n",
                     "M220 R\n",
                     "; --- ChromaSave Return Travel ---\n",
+                ]
+                if restore_temp > 0:
+                    return_cmds.append(f"M104 S{restore_temp:.0f}\n")
+                return_cmds.extend([
                     f"G1 Z{safe_z:.3f} F1200\n",
                     f"G1 X{cut_x:.3f} Y{cut_y:.3f} F21000\n",
                     f"G1 Z{cut_z:.3f} F1200\n",
+                    "G1 E1.6 F1800\n",
+                ])
+                if cut_accel > 0:
+                    return_cmds.append(f"M204 S{cut_accel:.0f}\n")
+                return_cmds.extend([
                     f"G1 F{cut_f:.1f}\n",
                     "G92 E0\n",
                     "; --------------------------------\n"
                 ])
+                insertions[c["cut_index"]].extend(return_cmds)
 
                 # 2. At origin: Travel safely to the detected purge wiper/chute and reopen M620
                 wiper_x = c.get("wiper_x")
                 if wiper_x is not None:
-                    # Bambu Lab A1 / A1 Mini: approach the left purge wiper smoothly
                     chute_travel_cmds = [
                         f"G1 X{wiper_x + 10.0:.1f} F18000\n",
                         f"G1 X{wiper_x:.1f} F3000\n"
                     ]
                 else:
-                    # Fallback for X1 / P1 series or other Bambu models
                     p_ref = c["idx_purge_start"] if c["idx_purge_start"] != -1 else c["origin"]
                     chute_travel_cmds = [
                         f"G1 X{state_x[p_ref]:.1f} Y{state_y[p_ref]:.1f} F18000\n"
                     ]
 
-                # Use the actual Z height right before origin to prevent downward Z collisions
-                # when Early-Cut backtracks across multiple layers.
                 origin_z = state_z[max(0, c["origin"] - 1)]
                 origin_safe_z = max(safe_z, origin_z + 3.0)
 
                 insertions[c["origin"]].extend([
                     "; --- ChromaSave Chute Re-route ---\n",
-                    *deferred_origin_cmds,
+                    "M1007 S0\n",
                     f"G1 Z{origin_safe_z:.3f} F1200\n",
                     *chute_travel_cmds,
                     f"M620 S{t_num}A\n",
@@ -732,19 +812,19 @@ def filament_change_optimizer(config):
             tag = c.get("status_tag", "[OMITTED]")
             if "MIN_SAVING" in tag:
                 omitted_min_saving += 1
+            elif "LONG_RETRACT" in tag:
+                omitted_long_retract += 1
             else:
                 omitted_no_saving += 1
             print(f"{tag} Layer {c['layer']} | Orig Line {c['origin']} | Flush: {c['total_purge_mm']:.2f}mm ({c['flush_vol']:.0f}mm3) | Sav: 0.00mm | Tow: {c['tower_e_mm']:.2f}mm | Trash: {c['calculate_quantity']:.2f}mm | {c['break_flag']}")
 
-        # --- PUERGE MANAGEMENT ---
+        # --- PURGE MANAGEMENT ---
         p_start = c.get("idx_purge_start", -1)
         p_end = c.get("idx_purge_end", -1)
 
-        if p_start != -1:
-
+        if p_start != -1 and not (is_bambu_lab and c.get("status_tag") == "[OMITTED: LONG_RETRACT]"):
             curr_t_idx = c.get("t_idx", 0)
-            fallback_prev = initial_tool_idx if initial_tool_idx is not None else curr_t_idx
-            prev_t_idx = changes[idx_change - 1].get("t_idx", 0) if idx_change > 0 else fallback_prev
+            prev_t_idx = c.get("prev_t_idx", curr_t_idx)
             
             curr_type = config.types[curr_t_idx] if hasattr(config, 'types') and curr_t_idx < len(config.types) else "UNK"
             curr_color = hex_to_color_name(config.colors[curr_t_idx] if hasattr(config, 'colors') and curr_t_idx < len(config.colors) else "#000")
@@ -768,23 +848,33 @@ def filament_change_optimizer(config):
                     if s_line.startswith(("M1002 ", "M109 ", "M106 ", "M400")):
                         flush_header_cmds.append(lines[k])
 
-                # 2. Extract original inter-flush wipe routine if present, or synthesize one via wiper_x
+                # 2. Extract original inter-flush wipe routine if present, or synthesize native Bambu wipe
                 wipe_between_cmds = []
                 if first_flush_end < p_end:
                     for k in range(first_flush_end + 1, p_end + 1):
                         if re_flush_start.search(lines[k]):
                             break
+                        if lines[k].lstrip().startswith("M73"):
+                            continue
                         wipe_between_cmds.append(lines[k])
 
                 if not wipe_between_cmds and c.get("wiper_x") is not None:
                     wx = c["wiper_x"]
                     wipe_between_cmds = [
                         "; ChromaSave Inter-Flush Wipe\n",
+                        "M400\n",
+                        "G92 E0\n",
+                        "G1 E-2 F1800\n",
+                        "M400\n",
                         "M106 P1 S178\n",
-                        "G4 S2\n",
+                        "M400 S3\n",
                         f"G1 X{wx + 10.0:.1f} F18000\n",
                         f"G1 X{wx:.1f} F3000\n",
-                        "M106 P1 S60\n"
+                        f"G1 X{wx + 10.0:.1f} F18000\n",
+                        f"G1 X{wx:.1f} F3000\n",
+                        "M400\n",
+                        "M106 P1 S60\n",
+                        "G1 E2 F300\n"
                     ]
 
                 for k in range(p_start, p_end + 1):
@@ -868,8 +958,8 @@ def filament_change_optimizer(config):
         t_waste_g = (((quantity_mm + tower_e_mm) * area) / 1000.0) * den
         tool_real_waste_g[curr_t_idx] = tool_real_waste_g.get(curr_t_idx, 0.0) + t_waste_g
         
-    # KPI's
-    actual_waste_g = max(0.0, theoretical_waste_g - weight_saved_g)
+    # KPIs (Conciliated with actual physical waste in chute + tower)
+    actual_waste_g = sum(tool_real_waste_g.values())
     oce = (optimized_changes / len(changes)) * 100 if len(changes) > 0 else 0.0
     ofe = (weight_saved_g / theoretical_waste_g) * 100 if theoretical_waste_g > 0 else 0.0
     hfe = (weight_saved_g / remaining_weight_g) * 100 if remaining_weight_g > 0 else 0.0
@@ -931,11 +1021,11 @@ def filament_change_optimizer(config):
     file_dir = os.path.dirname(config.filepath)
     log_dir = os.path.join(file_dir, "chromasave_history.log")
     
-    total_omitted = omitted_min_saving + omitted_no_saving
+    total_omitted = omitted_min_saving + omitted_no_saving + omitted_long_retract
     
     log_content = (
         f"[{current_date}] Gcode File: {gcode_file_name}\n"
-        f"Changes: {len(changes)} | Optimized: {optimized_changes} | Omitted: {total_omitted} (<MinSav: {omitted_min_saving}, Zero: {omitted_no_saving}) | OCE: {oce:.2f}% | "
+        f"Changes: {len(changes)} | Optimized: {optimized_changes} | Omitted: {total_omitted} (<MinSav: {omitted_min_saving}, LongRetract: {omitted_long_retract}, Zero: {omitted_no_saving}) | OCE: {oce:.2f}% | "
         f"Baseline Waste: {theoretical_waste_g:.2f} g | "
         f"Real Waste: {actual_waste_g:.2f} g | "
         f"Saved: {weight_saved_g:.2f} g | OFE: {ofe:.2f}% | HFE: {hfe:.2f}% | CSE: {cse:.2f}%\n"
@@ -954,19 +1044,28 @@ def filament_change_optimizer(config):
         f" Log saved in:\n"
         f" {log_dir}"
     )
+
+    warning_banner = ""
+    if long_retract_warning:
+        warning_banner = (
+            " ----------------------------------------------------------------------------------\n"
+            "  [WARNING] 'Long retraction when cut' is enabled in OrcaSlicer settings.\n"
+            "            Early-Cut was omitted on affected changes. Disable it to use ChromaSave.\n"
+        )
     
     report_str = (
         "\n"
         " ==================================================================================\n"
-        " GLOBAL REPORT (ChromaSave v1.1.0-beta.1)\n"
+        " GLOBAL REPORT (ChromaSave v1.1.0-beta.2)\n"
         " ==================================================================================\n"
         f"  Purge Target Mode:                               {PURGE_TARGET.upper()}\n"
+        f"{warning_banner}"
         " ----------------------------------------------------------------------------------\n"
         "     Color Changes\n"
         " ----------------------------------------------------------------------------------\n"
         f"       Total Changes:                                  {len(changes)}\n"
         f"       Optimized Changes:                              {optimized_changes}\n"
-        f"       Omitted Changes (<{MIN_SAVING_THRESHOLD:.1f}mm: {omitted_min_saving} | Zero/Init: {omitted_no_saving}):   {total_omitted}\n"
+        f"       Omitted (<{MIN_SAVING_THRESHOLD:.1f}mm: {omitted_min_saving} | LongRet: {omitted_long_retract} | Zero: {omitted_no_saving}):   {total_omitted}\n"
         f"       Overall Changes Efficiency:                     {oce:.2f} %\n"
         " ----------------------------------------------------------------------------------\n"
         "     Filament Efficiency\n"
@@ -990,12 +1089,13 @@ def filament_change_optimizer(config):
     )
 
     report_orca = (
-            " GLOBAL REPORT (ChromaSave v1.1.0-beta.1)\n"
+            " GLOBAL REPORT (ChromaSave v1.1.0-beta.2)\n"
             f"Purge Target Mode:            {PURGE_TARGET.upper()}\n"
-            "Color Changes\n"
+            + ("WARNING: Disable 'Long retraction when cut' in printer/filament settings for Early-Cut.\n" if long_retract_warning else "")
+            + "Color Changes\n"
             f" Total Changes:               {len(changes)}\n"
             f" Optimized Changes:           {optimized_changes}\n"
-            f" Omitted Changes (<{MIN_SAVING_THRESHOLD:.1f}mm: {omitted_min_saving} | Zero: {omitted_no_saving}): {total_omitted}\n"
+            f" Omitted (<{MIN_SAVING_THRESHOLD:.1f}mm: {omitted_min_saving} | LongRet: {omitted_long_retract} | Zero: {omitted_no_saving}): {total_omitted}\n"
             f" Overall Changes Efficiency:  {oce:.2f} %\n"
             "Filament Efficiency\n"
             f" Remaining Weight:            {remaining_weight_g:.2f} grams\n"
