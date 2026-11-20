@@ -55,7 +55,7 @@ if __name__ == "__main__":
     
     parser.add_argument('--sre', action='store_true', help='Look for a retraction command to relocate the FILAMENT_CHANGE command within the tolerance window.')
     parser.add_argument('--no-sre', action='store_false', dest='sre', help='Disable looking for retraction command.')
-    parser.set_defaults(sre=True) # Default is True
+    parser.set_defaults(sre=True)
     
     parser.add_argument('--rem', type=float, default=5.0, help='Lock for a retraction margin in mm for safely relocating the FILAMENT_CHANGE command')
     parser.add_argument('filepath', type=str, help='Path to G-code file')
@@ -66,14 +66,20 @@ if __name__ == "__main__":
 
     parser.add_argument('--aipc', action='store_true', help='Enable - Avoid in Piece Cut - to prevent FILAMENT_CHANGE command within aesthetic zone.')
     parser.add_argument('--no-aipc', action='store_false', dest='aipc', help='Disable - Avoid in Piece Cut -')
-    parser.set_defaults(aipc=True) # Default is True
+    parser.set_defaults(aipc=True)
 
     # Purge Destination ("hybrid" by default, "bucket_only" as alternative)
     parser.add_argument('--purge_target', type=str, choices=['hybrid', 'bucket_only'], default='hybrid', help='Define where the residual purge is directed (hybrid compensates with wipe tower).')
+
+    # Dynamic Pre-Cut Retraction (Klipper)
+    parser.add_argument('--pre_cut_retract', action='store_true', help='Enable dynamic pre-cut retraction in Klipper to recover the remaining gap up to TARGET.')
+    parser.add_argument('--no-pre_cut_retract', action='store_false', dest='pre_cut_retract', help='Disable dynamic pre-cut retraction.')
+    parser.set_defaults(pre_cut_retract=False)
+    parser.add_argument('--max_pre_cut_retract', type=float, default=18.0, help='Maximum safe retraction length (mm) before cutting to prevent heatbreak clogs.')
     
     parser.add_argument('--console', action='store_true', help='Enable - Run in console - To run in console. Gcode file saved in folder to manual upload to Mainsail.')
     parser.add_argument('--no-console', action='store_false', dest='console', help='Disable - Run in console - Overwrite OrcaSlicer temporal file')
-    parser.set_defaults(console=True) # Default is True
+    parser.set_defaults(console=True)
 
     SAFETY_ZONES = {
         "Prime tower": True,
@@ -100,7 +106,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--dzones',
         action='append',
-        choices=list(SAFETY_ZONES.keys()), # Allow only valid values
+        choices=list(SAFETY_ZONES.keys()),
         help="Zones that you want disable - can be several (Prime tower, Wipe tower, Support, Support interface, Sparse infill, \
             Dense infill, Solid infill, Internal solid infill, Skirt, Brim, Gap fill, Outer wall, Inner wall, Overhang wall, Top surface, \
             Bottom surface, Internal bridge, Bridge, Custom)"
