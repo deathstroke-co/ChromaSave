@@ -42,11 +42,15 @@ class ChromaSaveConfig:
         # Dynamic limit for skipping purge (Skip Purge in mm)
         self.skip_purge = float(ui_config.get("skip_purge", 2.0))
         
-        # NEW: Minimum saving limit to activate Early-Cut (in mm)
+        # Minimum saving limit to activate Early-Cut (in mm)
         self.min_saving = float(ui_config.get("min_saving", 3.0))
         
         # Purge Destination ("hybrid" by default, "bucket_only" as alternative)
         self.purge_target = str(ui_config.get("purge_target", "hybrid")).strip().lower()
+
+        # Dynamic Pre-Cut Retraction (Klipper)
+        self.pre_cut_retract = bool(ui_config.get("pre_cut_retract", False))
+        self.max_pre_cut_retract = float(ui_config.get("max_pre_cut_retract", 18.0))
         
         # Default values for safety zones
         self.default_zones = {
@@ -93,6 +97,8 @@ class ChromaSaveConfig:
         print(f"[ChromaSave LOG] -> purge_target: {self.purge_target}", file=sys.stderr)
         print(f"[ChromaSave LOG] -> skip_purge: {self.skip_purge}", file=sys.stderr)
         print(f"[ChromaSave LOG] -> min_saving: {self.min_saving}", file=sys.stderr)
+        print(f"[ChromaSave LOG] -> pre_cut_retract: {self.pre_cut_retract}", file=sys.stderr)
+        print(f"[ChromaSave LOG] -> max_pre_cut_retract: {self.max_pre_cut_retract}", file=sys.stderr)
         print(f"[ChromaSave LOG] -> Safety_Zones: {self.dzones}", file=sys.stderr)
 
         # Extracting Filaments Info from API
@@ -199,8 +205,6 @@ if orca is not None and hasattr(orca, "slicing"):
                 # Attempt to show a native notification in OrcaSlicer
                 try:
                     if hasattr(orca, "host") and hasattr(orca.host, "ui") and hasattr(orca.host.ui, "push_notification"):
-                        
-                        # Searching for the correct enumerator to avoid typing errors
                         notif_level = None
                         for attr in dir(orca.host.ui.NotificationLevel):
                             if "info" in attr.lower():
@@ -213,23 +217,17 @@ if orca is not None and hasattr(orca, "slicing"):
                                     notif_level = getattr(orca.host.ui.NotificationLevel, attr)
                                     break
                                     
-                        # Clear emojis from the original report to avoid '?' characters in OrcaSlicer
                         clean_report = report_result.replace("✅", "").replace("📊", "")
-                        
-                        # Inject the notification using the entire text of the report
                         orca.host.ui.push_notification(notif_level, clean_report)
                     else:
-                        import sys
                         print("[ChromaSave LOG] La API orca.host.ui.push_notification is not available.", file=sys.stderr)
                 except Exception as ui_error:
-                    import sys
                     print(f"[ChromaSave LOG] Error showing native notification: {ui_error}", file=sys.stderr)
                     
                 return orca.ExecutionResult.success(report_result)
             
             except Exception as e:
-                # API actualizada: orca.ExecutionResult.failure(status, message)
-                status = getattr(orca.PluginResult, "failure", 0) # Fallback seguro
+                status = getattr(orca.PluginResult, "failure", 0)
                 return orca.ExecutionResult.failure(status, f"Internal script error: {str(e)}")
             
     # PACKAGE CLASS (The Registrar)
@@ -237,3 +235,4 @@ if orca is not None and hasattr(orca, "slicing"):
     class ChromaSavePackage(orca.base):
         def register_capabilities(self):
             orca.register_capability(ChromaSavePostProcessor)
+   
