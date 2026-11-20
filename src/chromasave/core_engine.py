@@ -54,6 +54,14 @@ def hex_to_color_name(hex_code):
             
     return closest_name
 
+def append_retract_param(line_str, retract_mm):
+    """Appends RETRACT_BEFORE_CUT parameter to a Klipper FILAMENT_CHANGE command."""
+    if retract_mm <= 0.0:
+        return line_str
+    stripped = line_str.rstrip('\r\n')
+    newline = '\r\n' if line_str.endswith('\r\n') else '\n'
+    return f"{stripped} RETRACT_BEFORE_CUT={retract_mm:.2f}{newline}"
+
 def filament_change_optimizer(config):
     try:
         with open(config.filepath, 'r', encoding='utf-8') as file:
@@ -71,13 +79,15 @@ def filament_change_optimizer(config):
     # CONSTANTS & PARAMETERS
     REMAINING_LENGTH = getattr(config, 'len', 64.857)
     SAFETY_MARGIN = getattr(config, 'sm', 10.0)
-    TARGET = REMAINING_LENGTH - SAFETY_MARGIN
+    TARGET = max(0.0, REMAINING_LENGTH - SAFETY_MARGIN)
     
     SEARCH_RETRACTIONS = getattr(config, 'sre', True)
     RETRACTION_MARGIN = getattr(config, 'rem', 5.0)
     AVOID_IN_PIECE_CUT = getattr(config, 'aipc', True)
     PURGE_TARGET = getattr(config, 'purge_target', 'hybrid').strip().lower()
     MIN_SAVING_THRESHOLD = getattr(config, 'min_saving', 3.0)
+    ENABLE_PRE_CUT_RETRACT = bool(getattr(config, 'pre_cut_retract', False))
+    MAX_PRE_CUT_RETRACT = float(getattr(config, 'max_pre_cut_retract', 18.0))
     
     SAFETY_ZONES = {
         "Prime tower": True,            
@@ -211,8 +221,7 @@ def filament_change_optimizer(config):
                     current_layer += 1
         line_layers[i] = current_layer
         
-        # Topology Tracking: In Bambu Lab, all the events that occur after FLUSH_END or CP TOOLCHANGE WIPE
-        # until another FEATURE of the piece begins is considered a Prime tower (allows Early-Cut and exact counting)
+        # Topology Tracking
         if re_wipe_start.search(line) or re_wipe_end.search(line) or "; FLUSH_END" in line:
             current_type = "Prime tower"
         elif "; FLUSH_START" in line:
@@ -389,7 +398,7 @@ def filament_change_optimizer(config):
                     tc_block_end = j
                     break
             
-            # Capture ALL purge pulses (from the FIRST FLUSH_START to the LAST FLUSH_END)
+            # Capture ALL purge pulses
             idx_purge_start = -1
             idx_purge_end = -1
             wiper_x = None
@@ -403,7 +412,6 @@ def filament_change_optimizer(config):
                     elif re_flush_end.search(lines[j]):
                         idx_purge_end = j
 
-                # Dynamically detect the negative X wiper/chute parking position (e.g., X-48.2 on A1)
                 if idx_purge_end != -1:
                     for j in range(idx_purge_end + 1, min(tc_block_end + 1, total_lines)):
                         if lines[j].startswith("M621"):
@@ -415,8 +423,6 @@ def filament_change_optimizer(config):
                                 if val_x < 0.0 and (wiper_x is None or val_x < wiper_x):
                                     wiper_x = val_x
 
-                # In Bambu Lab, end the Early-Cut block BEFORE M628 S0 so the flush state
-                # is not left open during subsequent model/tower printing moves.
                 if idx_purge_start != -1:
                     end_move = idx_purge_start - 1
                     for j in range(idx_purge_start - 1, origin, -1):
@@ -465,7 +471,7 @@ def filament_change_optimizer(config):
             
         i += 1
 
-    # EXACT TOWER CALCULATION (Only sums extrusions in the tower within the bed, excluding the chute)
+    # EXACT TOWER CALCULATION
     for idx_change, c in enumerate(changes):
         if is_bambu_lab:
             start_search = (c["idx_purge_end"] + 1) if c["idx_purge_end"] != -1 else (c["end_move"] + 1)
@@ -493,7 +499,7 @@ def filament_change_optimizer(config):
                 
         c["tower_e_mm"] = tower_e_mm
         
-    # BACKTRACKING WITH CHRONOLOGICAL PROTECTION & UNIVERSAL LONG_RETRACT GUARDRAIL
+    # BACKTRACKING WITH CHRONOLOGICAL PROTECTION & DYNAMIC PRE-CUT RETRACTION
     long_retract_warning = False
     for idx_change, c in enumerate(changes):
         curr_t_idx = c.get("t_idx", 0)
@@ -517,7 +523,7 @@ def filament_change_optimizer(config):
             c["break_flag"] = f"Incompatible: long_retractions_when_cut active ({lr_source}) (Early-cut omitted)"
             c["status_tag"] = "[OMITTED: LONG_RETRACT]"
             long_retract_warning = True
-        elif idx_change < 1:
+        elif idx_change < 1 or c["layer"] < 0:
             candidate_index = c["origin"]
             candidate_saving = 0.0
             c["break_flag"] = "Blocked by initialization (0.00 mm)"
@@ -619,7 +625,7 @@ def filament_change_optimizer(config):
                         
             # Recalculate Volumetric Saving if index moved
             if candidate_index != original_idx:
-                recalc_saving = sum(line_extrusions[i] for i in range(c["origin"] - 1, candidate_index - 1, -1))
+                recalc_saving = sum(line_extrusions[k] for k in range(c["origin"] - 1, candidate_index - 1, -1))
                 candidate_saving = min(recalc_saving, TARGET)
                 
             # STRICT FILTER FOR MINIMUM SAVING AND ZERO SAVING
@@ -637,6 +643,22 @@ def filament_change_optimizer(config):
             else:
                 c["status_tag"] = "[PARCIAL]" if ("Limit" in break_flag or "Collision" in break_flag) else "[SUCCESS]"
                 c["break_flag"] = f"{break_flag} ({candidate_saving:.2f} mm)"
+
+        # DYNAMIC PRE-CUT RETRACTION (Klipper only)
+        pre_cut_retract_mm = 0.0
+        if ENABLE_PRE_CUT_RETRACT and not is_bambu_lab and not has_long_retract and c["layer"] >= 0:
+            gap_mm = max(0.0, TARGET - candidate_saving)
+            pre_cut_retract_mm = min(gap_mm, MAX_PRE_CUT_RETRACT)
+            if pre_cut_retract_mm < 0.5:
+                pre_cut_retract_mm = 0.0
+
+        total_change_saving = candidate_saving + pre_cut_retract_mm
+
+        if pre_cut_retract_mm > 0.0 and candidate_saving <= 0.0:
+            c["status_tag"] = "[RETRACT_ONLY]"
+            c["break_flag"] = f"Early-cut omitted; Pre-Cut Retraction active ({pre_cut_retract_mm:.2f} mm)"
+        elif pre_cut_retract_mm > 0.0 and candidate_saving > 0.0:
+            c["break_flag"] = f"{c['break_flag']} + PreCutRet: {pre_cut_retract_mm:.2f} mm"
             
         # PHYSICOCHEMICAL MODEL INTEGRATED FOR ORCASLICER
         dia = config.diams[curr_t_idx] if hasattr(config, 'diams') and curr_t_idx < len(config.diams) else getattr(config, 'dia', 1.75)
@@ -669,13 +691,15 @@ def filament_change_optimizer(config):
         if is_bambu_lab and c.get("status_tag") == "[OMITTED: LONG_RETRACT]" and c.get("slicer_flush_e_mm", 0.0) > 0.0:
             calculate_quantity = c["slicer_flush_e_mm"]
         elif PURGE_TARGET == "hybrid":
-            remaining_purge_mm = total_purge_needed_mm - c["tower_e_mm"] - candidate_saving
+            remaining_purge_mm = total_purge_needed_mm - c["tower_e_mm"] - total_change_saving
             calculate_quantity = max(0.0, remaining_purge_mm)
         else: 
-            calculate_quantity = max(0.0, total_purge_needed_mm - candidate_saving)
+            calculate_quantity = max(0.0, total_purge_needed_mm - total_change_saving)
         
         c["cut_index"] = candidate_index
-        c["saving"] = candidate_saving
+        c["saving_early_cut"] = candidate_saving
+        c["saving_retract"] = pre_cut_retract_mm
+        c["saving"] = total_change_saving
         c["calculate_quantity"] = calculate_quantity
 
     if long_retract_warning:
@@ -691,6 +715,8 @@ def filament_change_optimizer(config):
     line_to_erase = set()
     replacement = {}
     
+    total_saving_early_cut = 0.0
+    total_saving_retract = 0.0
     total_saving = 0.0
     optimized_changes = 0
     omitted_min_saving = 0
@@ -702,13 +728,14 @@ def filament_change_optimizer(config):
     for idx_change, c in enumerate(changes):
         if c["layer"] < 0: continue
 
-        if c.get("cut_index") < c["origin"] and c.get("saving", 0.0) >= MIN_SAVING_THRESHOLD:
-            # --- TOOLCHANGE MANAGEMENT (Early-Cut) ---
+        ec_sav = c.get("saving_early_cut", 0.0)
+        ret_sav = c.get("saving_retract", 0.0)
+
+        if c.get("cut_index") < c["origin"] and ec_sav >= MIN_SAVING_THRESHOLD:
+            # --- TOOLCHANGE MANAGEMENT (Early-Cut + Optional Pre-Cut Retract) ---
             block = lines[c["origin"] : c["end_move"] + 1]
 
             if is_bambu_lab:
-                # Use the state right BEFORE cut_index so Return Travel restores the exact
-                # starting point, acceleration, and temperature of the ongoing print move.
                 prev_idx = max(0, c["cut_index"] - 1)
                 cut_x = state_x[prev_idx]
                 cut_y = state_y[prev_idx]
@@ -720,15 +747,12 @@ def filament_change_optimizer(config):
                 prev_t_num = c.get("prev_t_idx", 0)
                 safe_z = cut_z + 3.0
 
-                # Determine exact print temperature to restore for the outgoing filament
                 restore_temp = 0.0
                 if cut_layer <= 1 and prev_t_num < len(nozzle_temps_init):
                     restore_temp = nozzle_temps_init[prev_t_num]
                 elif prev_t_num < len(nozzle_temps):
                     restore_temp = nozzle_temps[prev_t_num]
 
-                # Filter out pre-M620 Z-hop moves; keep M1007 S0 in Early-Cut so mass estimation
-                # is properly disabled during the actual AMS cut/load cycle.
                 filtered_block = []
                 seen_m620 = False
                 for b_line in block:
@@ -739,7 +763,6 @@ def filament_change_optimizer(config):
                         continue
                     filtered_block.append(b_line)
 
-                # 1. At cut_index: Retract before Z-hop, execute filament change, restore state & return
                 insertions[c["cut_index"]].extend([
                     "; --- ChromaSave Bambu Early-Cut ---\n",
                     "G1 E-1.6 F1800\n",
@@ -770,7 +793,6 @@ def filament_change_optimizer(config):
                 ])
                 insertions[c["cut_index"]].extend(return_cmds)
 
-                # 2. At origin: Travel safely to the detected purge wiper/chute and reopen M620
                 wiper_x = c.get("wiper_x")
                 if wiper_x is not None:
                     chute_travel_cmds = [
@@ -797,17 +819,35 @@ def filament_change_optimizer(config):
                 ])
                 
             else:
-                insertions[c["cut_index"]].extend(block)
+                klipper_block = []
+                for b_line in block:
+                    if ret_sav > 0.0 and re_filament_change.search(b_line):
+                        klipper_block.append(append_retract_param(b_line, ret_sav))
+                    else:
+                        klipper_block.append(b_line)
+                insertions[c["cut_index"]].extend(klipper_block)
 
             for k in range(c["origin"], c["end_move"] + 1):
                 line_to_erase.add(k)
                 
+            total_saving_early_cut += ec_sav
+            total_saving_retract += ret_sav
             total_saving += c["saving"]
             optimized_changes += 1
             
             tag = c.get("status_tag", "[SUCCESS]")
-            print(f"{tag} Layer {c['layer']} | Cut Line {c['cut_index']} | Flush: {c['total_purge_mm']:.2f}mm ({c['flush_vol']:.0f}mm3) | Sav: {c['saving']:.2f}mm | Tow: {c['tower_e_mm']:.2f}mm | Trash: {c['calculate_quantity']:.2f}mm | {c['break_flag']}")
+            print(f"{tag} Layer {c['layer']} | Cut Line {c['cut_index']} | Flush: {c['total_purge_mm']:.2f}mm ({c['flush_vol']:.0f}mm3) | EarlyCut: {ec_sav:.2f}mm | PreCutRet: {ret_sav:.2f}mm | Tow: {c['tower_e_mm']:.2f}mm | Trash: {c['calculate_quantity']:.2f}mm | {c['break_flag']}")
         
+        elif not is_bambu_lab and ret_sav > 0.0:
+            # --- KLIPPER RETRACT-ONLY OPTIMIZATION (Early-Cut omitted, Pre-Cut Retract active) ---
+            replacement[c["origin"]] = append_retract_param(lines[c["origin"]], ret_sav)
+            total_saving_retract += ret_sav
+            total_saving += c["saving"]
+            optimized_changes += 1
+
+            tag = c.get("status_tag", "[RETRACT_ONLY]")
+            print(f"{tag} Layer {c['layer']} | Orig Line {c['origin']} | Flush: {c['total_purge_mm']:.2f}mm ({c['flush_vol']:.0f}mm3) | EarlyCut: 0.00mm | PreCutRet: {ret_sav:.2f}mm | Tow: {c['tower_e_mm']:.2f}mm | Trash: {c['calculate_quantity']:.2f}mm | {c['break_flag']}")
+
         else:
             tag = c.get("status_tag", "[OMITTED]")
             if "MIN_SAVING" in tag:
@@ -816,7 +856,7 @@ def filament_change_optimizer(config):
                 omitted_long_retract += 1
             else:
                 omitted_no_saving += 1
-            print(f"{tag} Layer {c['layer']} | Orig Line {c['origin']} | Flush: {c['total_purge_mm']:.2f}mm ({c['flush_vol']:.0f}mm3) | Sav: 0.00mm | Tow: {c['tower_e_mm']:.2f}mm | Trash: {c['calculate_quantity']:.2f}mm | {c['break_flag']}")
+            print(f"{tag} Layer {c['layer']} | Orig Line {c['origin']} | Flush: {c['total_purge_mm']:.2f}mm ({c['flush_vol']:.0f}mm3) | EarlyCut: 0.00mm | PreCutRet: 0.00mm | Tow: {c['tower_e_mm']:.2f}mm | Trash: {c['calculate_quantity']:.2f}mm | {c['break_flag']}")
 
         # --- PURGE MANAGEMENT ---
         p_start = c.get("idx_purge_start", -1)
@@ -833,11 +873,11 @@ def filament_change_optimizer(config):
             prev_color = hex_to_color_name(config.colors[prev_t_idx] if hasattr(config, 'colors') and prev_t_idx < len(config.colors) else "#000")
 
             flush_val = c.get("flush_vol", 0.0)
+            ret_info = f" | PreCutRet: {ret_sav:.2f} mm" if ret_sav > 0.0 else ""
 
-            obs_text = f"Active: T{curr_t_idx} [{curr_type} {curr_color}] (Purging T{prev_t_idx} [{prev_type} {prev_color}] {c['calculate_quantity']:.2f} mm) | Matrix: {flush_val:.1f} mm3 ({flush_val/area:.2f} mm) | Tower: {c['tower_e_mm']:.1f} mm"
+            obs_text = f"Active: T{curr_t_idx} [{curr_type} {curr_color}] (Purging T{prev_t_idx} [{prev_type} {prev_color}] {c['calculate_quantity']:.2f} mm) | Matrix: {flush_val:.1f} mm3 ({flush_val/area:.2f} mm) | Tower: {c['tower_e_mm']:.1f} mm{ret_info}"
 
             if is_bambu_lab:
-                # 1. Preserve setup commands (M1002, M109, M106, M400) from the first FLUSH block
                 flush_header_cmds = []
                 first_flush_end = p_end
                 for k in range(p_start + 1, p_end + 1):
@@ -848,7 +888,6 @@ def filament_change_optimizer(config):
                     if s_line.startswith(("M1002 ", "M109 ", "M106 ", "M400")):
                         flush_header_cmds.append(lines[k])
 
-                # 2. Extract original inter-flush wipe routine if present, or synthesize native Bambu wipe
                 wipe_between_cmds = []
                 if first_flush_end < p_end:
                     for k in range(first_flush_end + 1, p_end + 1):
@@ -928,16 +967,20 @@ def filament_change_optimizer(config):
     # KPIs, Real Impact, and Breakdown by Filament
     total_theoretical_waste_vol_mm3 = 0.0
     theoretical_waste_g = 0.0
-    weight_saved_g = 0.0
+    weight_saved_early_cut_g = 0.0
+    weight_saved_retract_g = 0.0
     remaining_weight_g = 0.0
     target_weight_g = 0.0
     tool_real_waste_g = {}
     
+    real_changes_count = 0
     for idx_change, c in enumerate(changes):
         if c["layer"] < 0: continue
+        real_changes_count += 1
         curr_t_idx = c.get("t_idx", 0)
         flush_vol_mm3 = c.get("flush_vol", 0.0)
-        saving = c.get("saving", 0.0)
+        ec_sav = c.get("saving_early_cut", 0.0)
+        ret_sav = c.get("saving_retract", 0.0)
         quantity_mm = c.get("calculate_quantity", 0.0)
         tower_e_mm = c.get("tower_e_mm", 0.0)
         
@@ -953,19 +996,23 @@ def filament_change_optimizer(config):
         change_theoretical_vol = max(flush_vol_mm3, remaining_vol_mm3)
         total_theoretical_waste_vol_mm3 += change_theoretical_vol
         theoretical_waste_g += (change_theoretical_vol / 1000.0) * den
-        weight_saved_g += ((saving * area) / 1000.0) * den
+
+        weight_saved_early_cut_g += ((ec_sav * area) / 1000.0) * den
+        weight_saved_retract_g += ((ret_sav * area) / 1000.0) * den
         
         t_waste_g = (((quantity_mm + tower_e_mm) * area) / 1000.0) * den
         tool_real_waste_g[curr_t_idx] = tool_real_waste_g.get(curr_t_idx, 0.0) + t_waste_g
         
+    weight_saved_g = weight_saved_early_cut_g + weight_saved_retract_g
+
     # KPIs (Conciliated with actual physical waste in chute + tower)
     actual_waste_g = sum(tool_real_waste_g.values())
-    oce = (optimized_changes / len(changes)) * 100 if len(changes) > 0 else 0.0
+    oce = (optimized_changes / real_changes_count) * 100 if real_changes_count > 0 else 0.0
     ofe = (weight_saved_g / theoretical_waste_g) * 100 if theoretical_waste_g > 0 else 0.0
     hfe = (weight_saved_g / remaining_weight_g) * 100 if remaining_weight_g > 0 else 0.0
     cse = (weight_saved_g / target_weight_g) * 100 if target_weight_g > 0 else 0.0
     
-    # EXACT PIECE WEIGHT CALCULATION (Without double counting of Flushed or Tower)
+    # EXACT PIECE WEIGHT CALCULATION
     tool_model_e_mm = {}
     curr_t = initial_tool_idx if initial_tool_idx is not None else (changes[0]["t_idx"] if changes else 0)
     
@@ -1022,13 +1069,14 @@ def filament_change_optimizer(config):
     log_dir = os.path.join(file_dir, "chromasave_history.log")
     
     total_omitted = omitted_min_saving + omitted_no_saving + omitted_long_retract
+    pre_cut_status = f"ENABLED (Max {MAX_PRE_CUT_RETRACT:.1f} mm)" if (ENABLE_PRE_CUT_RETRACT and not is_bambu_lab) else "DISABLED"
     
     log_content = (
         f"[{current_date}] Gcode File: {gcode_file_name}\n"
-        f"Changes: {len(changes)} | Optimized: {optimized_changes} | Omitted: {total_omitted} (<MinSav: {omitted_min_saving}, LongRetract: {omitted_long_retract}, Zero: {omitted_no_saving}) | OCE: {oce:.2f}% | "
+        f"Changes: {real_changes_count} | Optimized: {optimized_changes} | Omitted: {total_omitted} (<MinSav: {omitted_min_saving}, LongRetract: {omitted_long_retract}, Zero: {omitted_no_saving}) | OCE: {oce:.2f}% | "
         f"Baseline Waste: {theoretical_waste_g:.2f} g | "
         f"Real Waste: {actual_waste_g:.2f} g | "
-        f"Saved: {weight_saved_g:.2f} g | OFE: {ofe:.2f}% | HFE: {hfe:.2f}% | CSE: {cse:.2f}%\n"
+        f"Saved Total: {weight_saved_g:.2f} g (EarlyCut: {weight_saved_early_cut_g:.2f} g, PreCutRet: {weight_saved_retract_g:.2f} g) | OFE: {ofe:.2f}% | HFE: {hfe:.2f}% | CSE: {cse:.2f}%\n"
         + "-" * 90 + "\n"
     )
     
@@ -1059,11 +1107,12 @@ def filament_change_optimizer(config):
         " GLOBAL REPORT (ChromaSave v1.1.0-beta.2)\n"
         " ==================================================================================\n"
         f"  Purge Target Mode:                               {PURGE_TARGET.upper()}\n"
+        f"  Dynamic Pre-Cut Retraction:                      {pre_cut_status}\n"
         f"{warning_banner}"
         " ----------------------------------------------------------------------------------\n"
         "     Color Changes\n"
         " ----------------------------------------------------------------------------------\n"
-        f"       Total Changes:                                  {len(changes)}\n"
+        f"       Total Changes:                                  {real_changes_count}\n"
         f"       Optimized Changes:                              {optimized_changes}\n"
         f"       Omitted (<{MIN_SAVING_THRESHOLD:.1f}mm: {omitted_min_saving} | LongRet: {omitted_long_retract} | Zero: {omitted_no_saving}):   {total_omitted}\n"
         f"       Overall Changes Efficiency:                     {oce:.2f} %\n"
@@ -1074,6 +1123,8 @@ def filament_change_optimizer(config):
         f"       Target Weight:                                  {target_weight_g:.2f} grams\n"
         f"       Slicer Baseline Waste (No Script):              {theoretical_waste_g:.2f} grams\n"
         f"       Real Waste (With ChromaSave-SmartPurge):        {actual_waste_g:.2f} grams\n"
+        f"       Saved by Early-Cut:                             {weight_saved_early_cut_g:.2f} grams\n"
+        f"       Saved by Pre-Cut Retraction:                    {weight_saved_retract_g:.2f} grams\n"
         f"    TOTAL PURGE SAVED:                                 {weight_saved_g:.2f} grams\n"
         "   --------------------------------------------------------------------------------\n"
         f"       Overall Filament Efficiency - OFE:              {ofe:.2f} %\n"
@@ -1091,9 +1142,10 @@ def filament_change_optimizer(config):
     report_orca = (
             " GLOBAL REPORT (ChromaSave v1.1.0-beta.2)\n"
             f"Purge Target Mode:            {PURGE_TARGET.upper()}\n"
+            f"Dynamic Pre-Cut Retraction:   {pre_cut_status}\n"
             + ("WARNING: Disable 'Long retraction when cut' in printer/filament settings for Early-Cut.\n" if long_retract_warning else "")
             + "Color Changes\n"
-            f" Total Changes:               {len(changes)}\n"
+            f" Total Changes:               {real_changes_count}\n"
             f" Optimized Changes:           {optimized_changes}\n"
             f" Omitted (<{MIN_SAVING_THRESHOLD:.1f}mm: {omitted_min_saving} | LongRet: {omitted_long_retract} | Zero: {omitted_no_saving}): {total_omitted}\n"
             f" Overall Changes Efficiency:  {oce:.2f} %\n"
@@ -1102,6 +1154,8 @@ def filament_change_optimizer(config):
             f" Target Weight:               {target_weight_g:.2f} grams\n"
             f" Slicer Baseline Waste (No Script):  {theoretical_waste_g:.2f} grams\n"
             f" Real Waste (With ChromaSave-SmartPurge):    {actual_waste_g:.2f} grams\n"
+            f" Saved by Early-Cut:          {weight_saved_early_cut_g:.2f} grams\n"
+            f" Saved by Pre-Cut Retraction: {weight_saved_retract_g:.2f} grams\n"
             f"TOTAL PURGE SAVED:            {weight_saved_g:.2f} grams\n"
             f" Overall Filament Efficiency - OFE:      {ofe:.2f} %\n"
             f" Hotend Filament Efficiency - HFE:       {hfe:.2f} %\n"
@@ -1124,10 +1178,14 @@ def filament_change_optimizer(config):
         "ofe": ofe,
         "hfe": hfe,
         "cse": cse,
+        "weight_saved_early_cut_g": weight_saved_early_cut_g,
+        "weight_saved_retract_g": weight_saved_retract_g,
         "weight_saved_g": weight_saved_g,
+        "total_saving_early_cut": total_saving_early_cut,
+        "total_saving_retract": total_saving_retract,
         "total_saving": total_saving,
         "optimized_changes": optimized_changes,
-        "total_changes": len(changes),
+        "total_changes": real_changes_count,
         "new_lines": new_lines,
         "report_cli": report_str,
         "report_str": report_str.replace("; ", ""),
