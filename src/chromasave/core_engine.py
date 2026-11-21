@@ -101,8 +101,8 @@ def append_retract_param(line_str, retract_mm):
     return f"{stripped} RETRACT_BEFORE_CUT={retract_mm:.2f}{newline}"
 
 def filament_change_optimizer(config):
-    """Entry point with persistent DualLogger setup in ~/.chromasave/logs/."""
-    persistent_log_dir = os.path.join(os.path.expanduser("~"), ".chromasave", "logs")
+    """Entry point with persistent DualLogger setup in ~/chromasave_logs/logs/."""
+    persistent_log_dir = os.path.join(os.path.expanduser("~"), "chromasave_logs", "logs")
     try:
         os.makedirs(persistent_log_dir, exist_ok=True)
     except Exception:
