@@ -163,14 +163,52 @@ class ChromaSaveConfig:
 if orca is not None and hasattr(orca, "slicing"):
     class ChromaSavePostProcessor(orca.slicing.SlicingPipelineCapabilityBase):
         def get_name(self):
-            return "ChromaSave SmartPurge"
+            return "ChromaSave"
 
-        def get_config_schema(self):
-            schema_path = os.path.join(os.path.dirname(__file__), "config_schema.json")
-            if os.path.exists(schema_path):
-                with open(schema_path, "r", encoding="utf-8") as f:
+        def has_config_ui(self):
+            return True
+
+        def get_config_ui(self):
+            ui_path = os.path.join(os.path.dirname(__file__), "config_ui.html")
+            if os.path.exists(ui_path):
+                with open(ui_path, "r", encoding="utf-8") as f:
                     return f.read()
-            return "{}"
+            return ""
+
+        def get_default_config(self):
+            return {
+                "len": 64.857,
+                "sm": 10.0,
+                "min_saving": 3.0,
+                "skip_purge": 2.0,
+                "purge_target": "hybrid",
+                "pre_cut_retract": False,
+                "max_pre_cut_retract": 18.0,
+                "sre": True,
+                "rem": 5.0,
+                "aipc": True,
+                "SAFETY_ZONES": {
+                    "Prime tower": True,
+                    "Wipe tower": True,
+                    "Support": True,
+                    "Support interface": True,
+                    "Sparse infill": True,
+                    "Dense infill": True,
+                    "Solid infill": True,
+                    "Internal solid infill": False,
+                    "Skirt": False,
+                    "Brim": False,
+                    "Gap fill": False,
+                    "Outer wall": False,
+                    "Inner wall": False,
+                    "Overhang wall": False,
+                    "Top surface": False,
+                    "Bottom surface": False,
+                    "Internal bridge": False,
+                    "Bridge": False,
+                    "Custom": False
+                }
+            }
             
         def execute(self, ctx):
             if ctx.step != orca.slicing.Step.psGCodePostProcess:

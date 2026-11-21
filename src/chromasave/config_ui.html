@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ChromaSave SmartPurge Configuration</title>
+<style>
+  :root {
+    --bg: #1e1f22;
+    --panel: #27292d;
+    --panel-border: #383b42;
+    --input-bg: #1a1b1e;
+    --text: #e6e8ec;
+    --muted: #9aa0aa;
+    --accent: #00ae42;
+    --accent-hover: #00c44b;
+    --warn: #e5a00d;
+    --danger: #e05252;
+    --radius: 6px;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .container {
+    max-width: 780px;
+    margin: 0 auto;
+    padding-bottom: 64px;
+  }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  header h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+    color: #ffffff;
+  }
+
+  .badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(0, 174, 66, 0.16);
+    color: var(--accent);
+    border: 1px solid rgba(0, 174, 66, 0.4);
+    font-weight: 600;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 14px;
+  }
+
+  .card-title {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+  }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 12px 16px;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .field.disabled {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+
+  label {
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .hint {
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+
+  input[type="number"],
+  select {
+    width: 100%;
+    padding: 7px 9px;
+    background: var(--input-bg);
+    color: var(--text);
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    font-size: 13px;
+    outline: none;
+  }
+
+  input[type="number"]:focus,
+  select:focus {
+    border-color: var(--accent);
+  }
+
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .preset-btn {
+    background: var(--input-bg);
+    color: var(--muted);
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    padding: 3px 7px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .preset-btn:hover {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+
+  .target-pill {
+    margin-top: 10px;
+    padding: 7px 10px;
+    border-radius: 4px;
+    background: rgba(0, 174, 66, 0.08);
+    border: 1px solid rgba(0, 174, 66, 0.25);
+    font-size: 12px;
+    color: var(--text);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .target-pill strong {
+    color: var(--accent);
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 6px 0;
+  }
+
+  .toggle-row input[type="checkbox"] {
+    margin-top: 3px;
+    width: 15px;
+    height: 15px;
+    accent-color: var(--accent);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .toggle-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .warn-note {
+    font-size: 11.5px;
+    color: var(--warn);
+    margin-top: 2px;
+  }
+
+  .zones-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .zones-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+    gap: 6px 12px;
+    padding-top: 4px;
+  }
+
+  .zone-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 7px;
+    border-radius: 4px;
+    background: var(--input-bg);
+    border: 1px solid transparent;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .zone-item:hover {
+    border-color: var(--panel-border);
+  }
+
+  .zone-item input[type="checkbox"] {
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .zone-item span {
+    font-size: 12px;
+  }
+
+  .footer-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #18191c;
+    border-top: 1px solid var(--panel-border);
+    padding: 10px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    z-index: 10;
+  }
+
+  .status {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .status.ok {
+    color: var(--accent);
+  }
+
+  .status.err {
+    color: var(--danger);
+  }
+
+  .actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  button.btn {
+    padding: 7px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--panel-border);
+    background: var(--panel);
+    color: var(--text);
+  }
+
+  button.btn:hover {
+    background: #32353b;
+  }
+
+  button.btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0b1910;
+    font-weight: 600;
+  }
+
+  button.btn-primary:hover {
+    background: var(--accent-hover);
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>ChromaSave</h1>
+      <span class="badge">v1.1.0-beta.2</span>
+    </header>
+
+    <!-- 1. Hotend Geometry & Thresholds -->
+    <section class="card">
+      <h2 class="card-title">Hotend Geometry &amp; Purge Thresholds</h2>
+      <div class="grid-2">
+        <div class="field">
+          <label for="len">Remaining Length &mdash; Cutter to Nozzle (mm)</label>
+          <input type="number" id="len" min="1" max="250" step="0.001" />
+          <div class="presets">
+            <button type="button" class="preset-btn" data-len="64.857">ChromaHead (64.857)</button>
+            <button type="button" class="preset-btn" data-len="44.485">Bambu X1/P1 (44.485)</button>
+            <button type="button" class="preset-btn" data-len="38.249">Bambu A1 (38.249)</button>
+          </div>
+          <span class="hint">Filament distance from cutter blade to nozzle tip.</span>
+        </div>
+
+        <div class="field">
+          <label for="sm">Safety Margin (mm)</label>
+          <input type="number" id="sm" min="0" max="100" step="0.5" />
+          <span class="hint">Buffer subtracted from Remaining Length to prevent premature color bleed.</span>
+        </div>
+
+        <div class="field">
+          <label for="min_saving">Minimum Saving Threshold (mm)</label>
+          <input type="number" id="min_saving" min="0" max="50" step="0.5" />
+          <span class="hint">Early-cut is omitted if recoverable filament is below this value.</span>
+        </div>
+
+        <div class="field">
+          <label for="skip_purge">Skip Purge Threshold (mm)</label>
+          <input type="number" id="skip_purge" min="0" max="50" step="0.5" />
+          <span class="hint">Residual chute/bucket purge below this length will be skipped.</span>
+        </div>
+
+        <div class="field">
+          <label for="purge_target">Purge Target Mode</label>
+          <select id="purge_target">
+            <option value="hybrid">Hybrid (Tower + Bucket)</option>
+            <option value="bucket_only">Bucket Only</option>
+          </select>
+          <span class="hint">Hybrid discounts prime/wipe tower volume from required chute purge.</span>
+        </div>
+      </div>
+
+      <div class="target-pill">
+        <span>Effective Early-Cut Target (<code>len - sm</code>)</span>
+        <strong id="target_preview">54.86 mm</strong>
+      </div>
+    </section>
+
+    <!-- 2. Dynamic Pre-Cut Retraction -->
+    <section class="card">
+      <h2 class="card-title">Dynamic Pre-Cut Retraction</h2>
+      <div class="toggle-row">
+        <input type="checkbox" id="pre_cut_retract" />
+        <div class="toggle-text">
+          <label for="pre_cut_retract">Enable Dynamic Pre-Cut Retraction</label>
+          <span class="hint">Retracts filament before cutting to recover the remaining gap up to Target (Klipper &amp; Experimental Bambu Lab).</span>
+          <span class="warn-note">Requires OrcaSlicer's native "Long retraction when cut" to be disabled.</span>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-top: 8px;">
+        <div class="field" id="field_max_pre_cut_retract">
+          <label for="max_pre_cut_retract">Max Pre-Cut Retraction (mm)</label>
+          <input type="number" id="max_pre_cut_retract" min="0" max="30" step="0.5" />
+          <span class="hint">Physical safety cap for pre-cut retraction (recommended: 15&ndash;18 mm).</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Seam & Cut Relocation -->
+    <section class="card">
+      <h2 class="card-title">Cut Relocation &amp; Retraction Search</h2>
+      <div class="toggle-row">
+        <input type="checkbox" id="sre" />
+        <div class="toggle-text">
+          <label for="sre">Search Retractions for Cut Relocation</label>
+          <span class="hint">Prioritize existing retraction moves and Z-hops within the tolerance window to hide the toolchange seam.</span>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-top: 8px;">
+        <div class="field" id="field_rem">
+          <label for="rem">Retraction Search Margin (mm)</label>
+          <input type="number" id="rem" min="0" max="50" step="0.5" />
+          <span class="hint">Tolerance window before Target to lock onto an existing retraction.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Safety Zones -->
+    <section class="card">
+      <h2 class="card-title">Safety Zones</h2>
+      <div class="toggle-row">
+        <input type="checkbox" id="aipc" />
+        <div class="toggle-text">
+          <label for="aipc">Avoid In-Piece Cut on Aesthetic Zones</label>
+          <span class="hint">Restrict early-cuts exclusively to the enabled Safety Zones below.</span>
+        </div>
+      </div>
+
+      <div id="zones_wrapper" style="margin-top: 10px;">
+        <div class="zones-toolbar">
+          <span class="hint">Allowed print features for Early-Cut insertion:</span>
+          <div class="presets">
+            <button type="button" class="preset-btn" id="btn_zones_safe">Safe Defaults</button>
+            <button type="button" class="preset-btn" id="btn_zones_all">Select All</button>
+            <button type="button" class="preset-btn" id="btn_zones_none">Deselect All</button>
+          </div>
+        </div>
+        <div class="zones-grid" id="zones_grid"></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="footer-bar">
+    <div id="status" class="status">Ready</div>
+    <div class="actions">
+      <button type="button" class="btn" id="btn_reset">Restore Defaults</button>
+      <button type="button" class="btn btn-primary" id="btn_save">Save Configuration</button>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const DEFAULT_ZONES = {
+    "Prime tower": true,
+    "Wipe tower": true,
+    "Support": true,
+    "Support interface": true,
+    "Sparse infill": true,
+    "Dense infill": true,
+    "Solid infill": true,
+    "Internal solid infill": false,
+    "Skirt": false,
+    "Brim": false,
+    "Gap fill": false,
+    "Outer wall": false,
+    "Inner wall": false,
+    "Overhang wall": false,
+    "Top surface": false,
+    "Bottom surface": false,
+    "Internal bridge": false,
+    "Bridge": false,
+    "Custom": false
+  };
+
+  const ZONE_LABELS = {
+    "Wipe tower": "Wipe tower (Bambu Lab)",
+    "Custom": "Custom G-code"
+  };
+
+  const DEFAULTS = {
+    len: 64.857,
+    sm: 10.0,
+    min_saving: 3.0,
+    skip_purge: 2.0,
+    purge_target: "hybrid",
+    pre_cut_retract: false,
+    max_pre_cut_retract: 18.0,
+    sre: true,
+    rem: 5.0,
+    aipc: true,
+    SAFETY_ZONES: Object.assign({}, DEFAULT_ZONES)
+  };
+
+  const statusEl = document.getElementById("status");
+  const zonesGridEl = document.getElementById("zones_grid");
+
+  function setStatus(msg, type) {
+    statusEl.textContent = msg;
+    statusEl.className = "status" + (type ? " " + type : "");
+  }
+
+  function buildZonesUI() {
+    zonesGridEl.innerHTML = "";
+    Object.keys(DEFAULT_ZONES).forEach(function (zone) {
+      const label = document.createElement("label");
+      label.className = "zone-item";
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.dataset.zone = zone;
+
+      const span = document.createElement("span");
+      span.textContent = ZONE_LABELS[zone] || zone;
+
+      label.appendChild(cb);
+      label.appendChild(span);
+      zonesGridEl.appendChild(label);
+    });
+  }
+
+  function updateDerivedState() {
+    const lenVal = parseFloat(document.getElementById("len").value) || 0;
+    const smVal = parseFloat(document.getElementById("sm").value) || 0;
+    const target = Math.max(0, lenVal - smVal);
+    document.getElementById("target_preview").textContent = target.toFixed(2) + " mm";
+
+    const preCutOn = document.getElementById("pre_cut_retract").checked;
+    document.getElementById("field_max_pre_cut_retract").classList.toggle("disabled", !preCutOn);
+
+    const sreOn = document.getElementById("sre").checked;
+    document.getElementById("field_rem").classList.toggle("disabled", !sreOn);
+
+    const aipcOn = document.getElementById("aipc").checked;
+    document.getElementById("zones_wrapper").classList.toggle("disabled", !aipcOn);
+  }
+
+  function clampNumber(val, min, max, fallback) {
+    const n = parseFloat(val);
+    if (Number.isNaN(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function applyConfigToUI(rawCfg) {
+    const cfg = Object.assign({}, DEFAULTS, rawCfg || {});
+    const zones = Object.assign({}, DEFAULT_ZONES, (rawCfg && rawCfg.SAFETY_ZONES) || {});
+
+    document.getElementById("len").value = cfg.len;
+    document.getElementById("sm").value = cfg.sm;
+    document.getElementById("min_saving").value = cfg.min_saving;
+    document.getElementById("skip_purge").value = cfg.skip_purge;
+    document.getElementById("purge_target").value =
+      cfg.purge_target === "bucket_only" ? "bucket_only" : "hybrid";
+    document.getElementById("pre_cut_retract").checked = Boolean(cfg.pre_cut_retract);
+    document.getElementById("max_pre_cut_retract").value = cfg.max_pre_cut_retract;
+    document.getElementById("sre").checked = Boolean(cfg.sre);
+    document.getElementById("rem").value = cfg.rem;
+    document.getElementById("aipc").checked = Boolean(cfg.aipc);
+
+    zonesGridEl.querySelectorAll("input[type='checkbox']").forEach(function (cb) {
+      const z = cb.dataset.zone;
+      cb.checked = Boolean(zones[z]);
+    });
+
+    updateDerivedState();
+  }
+
+  function readConfigFromUI() {
+    const zones = {};
+    zonesGridEl.querySelectorAll("input[type='checkbox']").forEach(function (cb) {
+      zones[cb.dataset.zone] = cb.checked;
+    });
+
+    return {
+      len: clampNumber(document.getElementById("len").value, 1.0, 250.0, DEFAULTS.len),
+      sm: clampNumber(document.getElementById("sm").value, 0.0, 100.0, DEFAULTS.sm),
+      min_saving: clampNumber(document.getElementById("min_saving").value, 0.0, 50.0, DEFAULTS.min_saving),
+      skip_purge: clampNumber(document.getElementById("skip_purge").value, 0.0, 50.0, DEFAULTS.skip_purge),
+      purge_target: document.getElementById("purge_target").value === "bucket_only" ? "bucket_only" : "hybrid",
+      pre_cut_retract: document.getElementById("pre_cut_retract").checked,
+      max_pre_cut_retract: clampNumber(document.getElementById("max_pre_cut_retract").value, 0.0, 30.0, DEFAULTS.max_pre_cut_retract),
+      sre: document.getElementById("sre").checked,
+      rem: clampNumber(document.getElementById("rem").value, 0.0, 50.0, DEFAULTS.rem),
+      aipc: document.getElementById("aipc").checked,
+      SAFETY_ZONES: zones
+    };
+  }
+
+  async function loadConfig() {
+    if (!window.orca || typeof window.orca.getConfig !== "function") {
+      applyConfigToUI(DEFAULTS);
+      setStatus("Preview mode (window.orca bridge not detected)", "");
+      return;
+    }
+
+    try {
+      let raw = await window.orca.getConfig();
+      if (typeof raw === "string") {
+        raw = raw.trim() ? JSON.parse(raw) : {};
+      }
+      applyConfigToUI(raw && typeof raw === "object" ? raw : {});
+      setStatus("Configuration loaded", "");
+    } catch (err) {
+      applyConfigToUI(DEFAULTS);
+      setStatus("Failed to load config, showing defaults: " + err, "err");
+    }
+  }
+
+  async function saveConfig() {
+    const cfg = readConfigFromUI();
+    applyConfigToUI(cfg);
+
+    if (!window.orca || typeof window.orca.saveConfig !== "function") {
+      setStatus("Preview mode: config validated (no OrcaSlicer bridge)", "ok");
+      return;
+    }
+
+    try {
+      await window.orca.saveConfig(cfg);
+      setStatus("Configuration saved", "ok");
+    } catch (err) {
+      setStatus("Error saving configuration: " + err, "err");
+    }
+  }
+
+  function bindEvents() {
+    ["len", "sm"].forEach(function (id) {
+      document.getElementById(id).addEventListener("input", updateDerivedState);
+    });
+    ["pre_cut_retract", "sre", "aipc"].forEach(function (id) {
+      document.getElementById(id).addEventListener("change", updateDerivedState);
+    });
+
+    document.querySelectorAll("[data-len]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        document.getElementById("len").value = btn.dataset.len;
+        updateDerivedState();
+      });
+    });
+
+    document.getElementById("btn_zones_safe").addEventListener("click", function () {
+      zonesGridEl.querySelectorAll("input[type='checkbox']").forEach(function (cb) {
+        cb.checked = Boolean(DEFAULT_ZONES[cb.dataset.zone]);
+      });
+    });
+
+    document.getElementById("btn_zones_all").addEventListener("click", function () {
+      zonesGridEl.querySelectorAll("input[type='checkbox']").forEach(function (cb) {
+        cb.checked = true;
+      });
+    });
+
+    document.getElementById("btn_zones_none").addEventListener("click", function () {
+      zonesGridEl.querySelectorAll("input[type='checkbox']").forEach(function (cb) {
+        cb.checked = false;
+      });
+    });
+
+    document.getElementById("btn_reset").addEventListener("click", function () {
+      applyConfigToUI(DEFAULTS);
+      setStatus("Defaults restored (click Save to persist)", "");
+    });
+
+    document.getElementById("btn_save").addEventListener("click", saveConfig);
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    buildZonesUI();
+    bindEvents();
+    loadConfig();
+  });
+})();
+</script>
+</body>
+</html>

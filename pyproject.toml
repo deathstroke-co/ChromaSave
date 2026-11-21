@@ -26,3 +26,6 @@ readme = "README.md"
 # Instruction to find packages (equal to find_packages())
 where = ["src"]
 include = ["chromasave*"]
+
+[tool.setuptools.package-data]
+chromasave = ["config_ui.html"]
