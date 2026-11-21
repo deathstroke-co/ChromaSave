@@ -23,6 +23,44 @@ import math
 import re
 import datetime
 
+class DualLogger:
+    """Duplicates stdout to both console and a persistent log file."""
+    def __init__(self, log_path):
+        self.terminal = sys.stdout
+        self.log_file = None
+        try:
+            self.log_file = open(log_path, "a", encoding="utf-8")
+        except Exception as e:
+            print(f"[ChromaSave LOG] Alert: Could not open console log file ({e})", file=sys.stderr)
+
+    def write(self, message):
+        self.terminal.write(message)
+        if self.log_file is not None:
+            try:
+                self.log_file.write(message)
+            except Exception:
+                pass
+
+    def flush(self):
+        self.terminal.flush()
+        if self.log_file is not None:
+            try:
+                self.log_file.flush()
+            except Exception:
+                pass
+
+    def close(self):
+        if self.log_file is not None:
+            try:
+                self.log_file.close()
+            except Exception:
+                pass
+            self.log_file = None
+
+    def __getattr__(self, name):
+        return getattr(self.terminal, name)
+
+
 def hex_to_color_name(hex_code):
     """Converts a HEX code to an approximate color name."""
     hex_code = hex_code.strip()
@@ -63,6 +101,31 @@ def append_retract_param(line_str, retract_mm):
     return f"{stripped} RETRACT_BEFORE_CUT={retract_mm:.2f}{newline}"
 
 def filament_change_optimizer(config):
+    """Entry point with persistent DualLogger setup in ~/.chromasave/logs/."""
+    persistent_log_dir = os.path.join(os.path.expanduser("~"), ".chromasave", "logs")
+    try:
+        os.makedirs(persistent_log_dir, exist_ok=True)
+    except Exception:
+        persistent_log_dir = os.path.dirname(os.path.abspath(config.filepath))
+
+    console_log_path = os.path.join(persistent_log_dir, "chromasave_console.log")
+    history_log_path = os.path.join(persistent_log_dir, "chromasave_history.log")
+
+    original_stdout = sys.stdout
+    dual_logger = DualLogger(console_log_path)
+    sys.stdout = dual_logger
+
+    try:
+        run_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print("\n" + "=" * 90)
+        print(f"[{run_ts}] ChromaSave Run | Input: {config.filepath}")
+        print("=" * 90)
+        return _run_optimizer(config, history_log_path, console_log_path)
+    finally:
+        sys.stdout = original_stdout
+        dual_logger.close()
+
+def _run_optimizer(config, history_log_path, console_log_path):
     try:
         with open(config.filepath, 'r', encoding='utf-8') as file:
             lines = file.readlines()
@@ -1094,8 +1157,6 @@ def filament_change_optimizer(config):
     # REPORTS AND LOGS
     current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     gcode_file_name = os.path.basename(config.filepath)
-    file_dir = os.path.dirname(config.filepath)
-    log_dir = os.path.join(file_dir, "chromasave_history.log")
     
     total_omitted = omitted_min_saving + omitted_no_saving + omitted_long_retract
 
@@ -1114,16 +1175,18 @@ def filament_change_optimizer(config):
     )
     
     try:
-        with open(log_dir, "a", encoding="utf-8") as log_file:
+        with open(history_log_path, "a", encoding="utf-8") as log_file:
             log_file.write(log_content)
     except Exception as e:
-        print(f"Alert: The log file could not be written. ({e})")
+        print(f"Alert: The history log file could not be written. ({e})")
           
     files_str = (
         f" File saved in:\n"
         f" {new_filepath if getattr(config, 'console', False) else config.filepath}\n"
-        f" Log saved in:\n"
-        f" {log_dir}"
+        f" History log saved in:\n"
+        f" {history_log_path}\n"
+        f" Console log saved in:\n"
+        f" {console_log_path}"
     )
 
     warning_banner = ""
