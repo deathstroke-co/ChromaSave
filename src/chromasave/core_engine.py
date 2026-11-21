@@ -644,9 +644,9 @@ def filament_change_optimizer(config):
                 c["status_tag"] = "[PARCIAL]" if ("Limit" in break_flag or "Collision" in break_flag) else "[SUCCESS]"
                 c["break_flag"] = f"{break_flag} ({candidate_saving:.2f} mm)"
 
-        # DYNAMIC PRE-CUT RETRACTION (Klipper only)
+        # DYNAMIC PRE-CUT RETRACTION (Klipper + Experimental Bambu Lab)
         pre_cut_retract_mm = 0.0
-        if ENABLE_PRE_CUT_RETRACT and not is_bambu_lab and not has_long_retract and c["layer"] >= 0:
+        if ENABLE_PRE_CUT_RETRACT and not has_long_retract and c["layer"] >= 0:
             gap_mm = max(0.0, TARGET - candidate_saving)
             pre_cut_retract_mm = min(gap_mm, MAX_PRE_CUT_RETRACT)
             if pre_cut_retract_mm < 0.5:
@@ -768,6 +768,12 @@ def filament_change_optimizer(config):
                     "G1 E-1.6 F1800\n",
                     f"G1 Z{safe_z:.3f} F1200\n"
                 ])
+                if ret_sav > 0.0:
+                    insertions[c["cut_index"]].extend([
+                        f"; ChromaSave Bambu Experimental Pre-Cut Retraction (-{ret_sav:.2f} mm)\n",
+                        f"G1 E-{ret_sav:.2f} F1800\n",
+                        "M400\n"
+                    ])
                 insertions[c["cut_index"]].extend(filtered_block)
 
                 return_cmds = [
@@ -778,6 +784,12 @@ def filament_change_optimizer(config):
                 ]
                 if restore_temp > 0:
                     return_cmds.append(f"M104 S{restore_temp:.0f}\n")
+                if ret_sav > 0.0:
+                    return_cmds.extend([
+                        f"; ChromaSave Bambu Experimental Post-Load Recovery (+{ret_sav:.2f} mm)\n",
+                        f"G1 E{ret_sav:.2f} F300\n",
+                        "M400\n"
+                    ])
                 return_cmds.extend([
                     f"G1 Z{safe_z:.3f} F1200\n",
                     f"G1 X{cut_x:.3f} Y{cut_y:.3f} F21000\n",
@@ -838,16 +850,24 @@ def filament_change_optimizer(config):
             tag = c.get("status_tag", "[SUCCESS]")
             print(f"{tag} Layer {c['layer']} | Cut Line {c['cut_index']} | Flush: {c['total_purge_mm']:.2f}mm ({c['flush_vol']:.0f}mm3) | EarlyCut: {ec_sav:.2f}mm | PreCutRet: {ret_sav:.2f}mm | Tow: {c['tower_e_mm']:.2f}mm | Trash: {c['calculate_quantity']:.2f}mm | {c['break_flag']}")
         
-        elif not is_bambu_lab and ret_sav > 0.0:
-            # --- KLIPPER RETRACT-ONLY OPTIMIZATION (Early-Cut omitted, Pre-Cut Retract active) ---
-            replacement[c["origin"]] = append_retract_param(lines[c["origin"]], ret_sav)
+        elif ret_sav > 0.0:
+            # --- RETRACT-ONLY OPTIMIZATION (Early-Cut omitted, Pre-Cut Retract active) ---
+            if is_bambu_lab:
+                insertions[c["origin"]].extend([
+                    f"; ChromaSave Bambu Experimental Pre-Cut Retraction (-{ret_sav:.2f} mm)\n",
+                    f"G1 E-{ret_sav:.2f} F1800\n",
+                    "M400\n"
+                ])
+            else:
+                replacement[c["origin"]] = append_retract_param(lines[c["origin"]], ret_sav)
+
             total_saving_retract += ret_sav
             total_saving += c["saving"]
             optimized_changes += 1
 
             tag = c.get("status_tag", "[RETRACT_ONLY]")
             print(f"{tag} Layer {c['layer']} | Orig Line {c['origin']} | Flush: {c['total_purge_mm']:.2f}mm ({c['flush_vol']:.0f}mm3) | EarlyCut: 0.00mm | PreCutRet: {ret_sav:.2f}mm | Tow: {c['tower_e_mm']:.2f}mm | Trash: {c['calculate_quantity']:.2f}mm | {c['break_flag']}")
-
+        
         else:
             tag = c.get("status_tag", "[OMITTED]")
             if "MIN_SAVING" in tag:
@@ -922,11 +942,20 @@ def filament_change_optimizer(config):
                 net_purge = c['calculate_quantity']
                 header_str = "".join(flush_header_cmds)
 
+                bambu_recovery_str = ""
+                if ret_sav > 0.0 and not (c.get("cut_index") < c["origin"] and ec_sav >= MIN_SAVING_THRESHOLD):
+                    bambu_recovery_str = (
+                        f"; ChromaSave Bambu Experimental Post-Load Recovery (+{ret_sav:.2f} mm)\n"
+                        f"G1 E{ret_sav:.2f} F300\n"
+                        f"M400\n"
+                    )
+
                 if net_purge < SKIP_PURGE_THRESHOLD:
                     replacement[p_start] = (
                         f"; FLUSH_START\n"
                         f"; {obs_text}\n"
                         f"{header_str}"
+                        f"{bambu_recovery_str}"
                         f"; ChromaSave SKIP PURGE ({net_purge:.2f}mm < {SKIP_PURGE_THRESHOLD}mm)\n"
                         f"G1 E0.5 F300\n"
                         f"; FLUSH_END\n"
@@ -939,7 +968,7 @@ def filament_change_optimizer(config):
 
                     purge_blocks = []
                     for chunk_idx in range(num_chunks):
-                        block_hdr = f"; {obs_text}\n{header_str}" if chunk_idx == 0 else ""
+                        block_hdr = f"; {obs_text}\n{header_str}{bambu_recovery_str}" if chunk_idx == 0 else ""
                         purge_blocks.append(
                             f"; FLUSH_START\n"
                             f"{block_hdr}"
@@ -1069,8 +1098,12 @@ def filament_change_optimizer(config):
     log_dir = os.path.join(file_dir, "chromasave_history.log")
     
     total_omitted = omitted_min_saving + omitted_no_saving + omitted_long_retract
-    pre_cut_status = f"ENABLED (Max {MAX_PRE_CUT_RETRACT:.1f} mm)" if (ENABLE_PRE_CUT_RETRACT and not is_bambu_lab) else "DISABLED"
-    
+
+    if ENABLE_PRE_CUT_RETRACT:
+        pre_cut_status = f"EXPERIMENTAL (Max {MAX_PRE_CUT_RETRACT:.1f} mm)" if is_bambu_lab else f"ENABLED (Max {MAX_PRE_CUT_RETRACT:.1f} mm)"
+    else:
+        pre_cut_status = "DISABLED"
+
     log_content = (
         f"[{current_date}] Gcode File: {gcode_file_name}\n"
         f"Changes: {real_changes_count} | Optimized: {optimized_changes} | Omitted: {total_omitted} (<MinSav: {omitted_min_saving}, LongRetract: {omitted_long_retract}, Zero: {omitted_no_saving}) | OCE: {oce:.2f}% | "
