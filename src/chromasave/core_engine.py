@@ -101,29 +101,38 @@ def append_retract_param(line_str, retract_mm):
     return f"{stripped} RETRACT_BEFORE_CUT={retract_mm:.2f}{newline}"
 
 def filament_change_optimizer(config):
-    """Entry point with persistent DualLogger setup in ~/chromasave_logs/logs/."""
-    persistent_log_dir = os.path.join(os.path.expanduser("~"), "chromasave_logs", "logs")
-    try:
-        os.makedirs(persistent_log_dir, exist_ok=True)
-    except Exception:
-        persistent_log_dir = os.path.dirname(os.path.abspath(config.filepath))
-
-    console_log_path = os.path.join(persistent_log_dir, "chromasave_console.log")
-    history_log_path = os.path.join(persistent_log_dir, "chromasave_history.log")
-
+    """Entry point with passive persistent DualLogger in ~/chromasave_logs/ (no os.makedirs)."""
+    persistent_log_dir = os.path.join(os.path.expanduser("~"), "chromasave_logs")
+    console_log_path = None
+    history_log_path = None
+    dual_logger = None
     original_stdout = sys.stdout
-    dual_logger = DualLogger(console_log_path)
-    sys.stdout = dual_logger
 
     try:
-        run_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print("\n" + "=" * 90)
-        print(f"[{run_ts}] ChromaSave Run | Input: {config.filepath}")
-        print("=" * 90)
+        if os.path.isdir(persistent_log_dir):
+            test_console_path = os.path.join(persistent_log_dir, "chromasave_console.log")
+            logger = DualLogger(test_console_path)
+            if logger.log_file is not None:
+                dual_logger = logger
+                console_log_path = test_console_path
+                history_log_path = os.path.join(persistent_log_dir, "chromasave_history.log")
+                sys.stdout = dual_logger
+    except Exception:
+        # Sandbox blocked access or folder unavailable: skip external logs silently
+        console_log_path = None
+        history_log_path = None
+
+    try:
+        if dual_logger is not None:
+            run_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print("\n" + "=" * 90)
+            print(f"[{run_ts}] ChromaSave Run | Input: {config.filepath}")
+            print("=" * 90)
         return _run_optimizer(config, history_log_path, console_log_path)
     finally:
-        sys.stdout = original_stdout
-        dual_logger.close()
+        if dual_logger is not None:
+            sys.stdout = original_stdout
+            dual_logger.close()
 
 def _run_optimizer(config, history_log_path, console_log_path):
     try:
@@ -1174,20 +1183,24 @@ def _run_optimizer(config, history_log_path, console_log_path):
         + "-" * 90 + "\n"
     )
     
-    try:
-        with open(history_log_path, "a", encoding="utf-8") as log_file:
-            log_file.write(log_content)
-    except Exception as e:
-        print(f"Alert: The history log file could not be written. ({e})")
-          
+    if history_log_path:
+        try:
+            with open(history_log_path, "a", encoding="utf-8") as log_file:
+                log_file.write(log_content)
+        except Exception:
+            history_log_path = None
+
     files_str = (
         f" File saved in:\n"
-        f" {new_filepath if getattr(config, 'console', False) else config.filepath}\n"
-        f" History log saved in:\n"
-        f" {history_log_path}\n"
-        f" Console log saved in:\n"
-        f" {console_log_path}"
+        f" {new_filepath if getattr(config, 'console', False) else config.filepath}"
     )
+    if history_log_path and console_log_path:
+        files_str += (
+            f"\n History log saved in:\n"
+            f" {history_log_path}\n"
+            f" Console log saved in:\n"
+            f" {console_log_path}"
+        )
 
     warning_banner = ""
     if long_retract_warning:
