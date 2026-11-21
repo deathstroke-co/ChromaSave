@@ -39,6 +39,10 @@ The `+1h 45m 49s` difference between OrcaSlicer's estimate (`2h 42m 17s`) and th
 
 📸 **[View the full photo & timelapse gallery on Imgur](https://imgur.com/a/chromasave-v1-1-0-santa-test-V8jY5is)**
 
+### Print Timelapse
+
+https://github.com/user-attachments/assets/6451f07b-2b36-4e11-bcdd-1d6e2a0991e6
+
 ### Finished Model on Build Plate & Scale
 
 <p align="center">

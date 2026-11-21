@@ -28,6 +28,11 @@ ChromaSave **v1.1.0** graduates **Klipper Early-Cut + Dynamic Pre-Cut Retraction
 * **`SmartPurge.cfg` (`PURGE_IN_TRASH`):** Fixed parameter matching so the macro reads `SKIP_THRESHOLD` passed by ChromaSave (retaining backward compatibility with `SKIP_PURGE`).
 * **Change Count & OCE Accuracy:** Excluded initialization/pre-layer changes (`LAYER_NUM = -1`) from `Total Changes` and Overall Changes Efficiency (`OCE`).
 
+### Physical Validation (Klipper — 248 Toolchanges)
+Validated on a 4-color ABS/PC stress test (**27.87% real waste reduction** on scale: `55.17 g` actual vs. `76.49 g` slicer baseline; `100%` OCE). Full breakdown, scale evidence, and `.3mf` in [`examples/klipper_santa_claus_test/`](https://github.com/deathstroke-co/ChromaSave/tree/main/examples/klipper_santa_claus_test).
+
+https://github.com/user-attachments/assets/6451f07b-2b36-4e11-bcdd-1d6e2a0991e6
+
 ### Upgrade & Testing Notes
 * **Klipper Users:** Update `SmartPurge.cfg` on your printer and restart Klipper before enabling **Dynamic Pre-Cut Retraction**.
 * **Bambu Lab Beta Testers:** Ensure OrcaSlicer's native *Long retraction when cut* is **disabled** before enabling ChromaSave optimization, preview the generated G-code, and monitor the first toolchanges closely. Please report feedback via [GitHub Issues](https://github.com/deathstroke-co/ChromaSave/issues).
