@@ -1,26 +1,35 @@
 <div align="center">
   <img src="assets/logo_chromasave.jpeg" width="800" alt="ChromaSave Logo">
 
-  ![Version](https://img.shields.io/badge/version-1.1.0--beta.2-yellow.svg)
+  ![Version](https://img.shields.io/badge/version-1.1.0-brightgreen.svg)
   ![License](https://img.shields.io/badge/license-GNU%20AGPLv3-green.svg)
   ![Platform](https://img.shields.io/badge/platform-OrcaSlicer%20%7C%20Klipper%20%7C%20Bambu%20Lab-orange.svg)
 </div>
 
 Slash multi-color purge waste via Early-Cut & Pre-Cut Retraction. ChromaSave optimizes color transitions in OrcaSlicer for single-nozzle multi-color 3D printers (Klipper & Bambu Lab), consuming residual melt-zone filament inside hidden zones before purging to maximize material savings without compromising print quality.
 
-# ChromaSave (v1.1.0-beta.2)
+# ChromaSave (v1.1.0)
 
 **ChromaSave** is an open-source **OrcaSlicer** post-processing plugin and CLI tool designed to minimize multi-color purge waste on single-head multi-color 3D printers—including **Klipper** systems (such as CoPrint3D ChromaSet / KCM-Set with ChromaHead) and **Bambu Lab** printers (A1, A1 Mini, P1P, P1S, X1C).
 
-## What's New in v1.1.0-beta.2
+## What's New in v1.1.0
 
 * **Native Visual Configuration UI:** Replaced raw JSON editing with a self-contained HTML configuration panel inside OrcaSlicer, complete with hotend presets, live effective target calculation (`len - sm`), and visual **Safety Zones** toggles.
-* **Dynamic Pre-Cut Retraction (`pre_cut_retract`):** Automatically recovers the remaining gap up to `TARGET` before cutting (capped by `max_pre_cut_retract`, default `18.0 mm`). Fully supported in **Klipper** via `SmartPurge.cfg` (`RETRACT_BEFORE_CUT`) and available as an **Experimental** option for **Bambu Lab** (especially beneficial on X1/P1 hotends).
-* **Bambu Lab Compatibility & Safety Gate:**
+* **Dynamic Pre-Cut Retraction (`pre_cut_retract`):** Automatically recovers the remaining gap up to `TARGET` before cutting (capped by `max_pre_cut_retract`, default `18.0 mm`). Fully supported and physically validated in **Klipper** via `SmartPurge.cfg` (`RETRACT_BEFORE_CUT`), and available as an **Experimental** option for **Bambu Lab** (especially beneficial on X1/P1 hotends).
+* **Bambu Lab Compatibility & Safety Gate (Beta):**
   * Automatically detects OrcaSlicer's native `Long retraction when cut` (`M620.11 S1`) and safely omits Early-Cut and Pre-Cut Retraction on affected toolchanges (`[OMITTED: LONG_RETRACT]`), preserving native flushing to avoid firmware conflicts.
   * **Safe Multi-Chunk Purging:** Purges exceeding `45.0 mm` are split into equal chunks separated by inter-flush wipe routines to prevent chute clogs.
   * **Flush Header & Thermal Isolation:** Preserves `M1002`, `M109`, `M106`, and `M400` setup commands while restoring layer temperatures cleanly on return travels.
 * **Discriminated Reports & Passive Logging:** Reports now break down savings separately into **Early-Cut** and **Pre-Cut Retraction** (excluding initialization toolchange `LAYER_NUM=-1` from efficiency counts) and support optional persistent logging in `~/chromasave_logs/` without requesting OrcaSlicer *Full access*.
+
+## Platform Support & Maturity
+
+| Platform / Feature | Status in `v1.1.0` |
+| :--- | :--- |
+| **Klipper** (*Early-Cut* + *Dynamic Pre-Cut Retraction* + `SmartPurge.cfg`) | **Stable** *(Physically validated)* |
+| **OrcaSlicer HTML Config UI & Passive `DualLogger`** | **Stable** |
+| **Bambu Lab** (*Early-Cut* + Multi-Chunk Purge) | **Beta** *(Community validation)* |
+| **Bambu Lab** (*Dynamic Pre-Cut Retraction*) | **Experimental** |
 
 ## 🧠 The Concept & How It Works
 
@@ -50,7 +59,7 @@ After every cut, a filament plug remains between the cutter blade and the nozzle
 
 ## 🛠️ Installation & Visual Configuration (OrcaSlicer)
 
-1. Install and activate **ChromaSave** from **OrcaCloud** or load `chromasave-1.1.0b2-py3-none-any.whl` from [Releases](https://github.com/deathstroke-co/ChromaSave/releases) in the OrcaSlicer **Plugins** manager.
+1. Install and activate **ChromaSave** from **OrcaCloud** or load `chromasave-1.1.0-py3-none-any.whl` from [Releases](https://github.com/deathstroke-co/ChromaSave/releases) in the OrcaSlicer **Plugins** manager.
 2. Go to **Process -> Others -> Slicing Pipeline Plugin**, add **ChromaSave**, and click **Configure**.
 3. Adjust your hotend geometry, thresholds, and **Safety Zones** visually and click **Save Configuration**:
 
@@ -75,9 +84,9 @@ After every cut, a filament plug remains between the cutter blade and the nozzle
 | **Retraction Search (`sre` / `rem`)** | `true` / `5.0 mm` | Locks cuts onto existing retractions and Z-hops within the tolerance window. |
 | **Safety Zones (`aipc`)** | `true` | Restricts Early-Cuts exclusively to checked internal zones (keeping walls, top surfaces, and bridges clean). |
 
-## 🚀 Klipper Setup
+## 🚀 Klipper Setup (Stable)
 
-1. Download [SmartPurge.cfg](./klipper_configs/) (updated for `v1.1.0-beta.2` with `RETRACT_BEFORE_CUT` and `SKIP_THRESHOLD` support) into `~/printer_data/config/`.
+1. Download [SmartPurge.cfg](./klipper_configs/) (updated for `v1.1.0` with `RETRACT_BEFORE_CUT` and `SKIP_THRESHOLD` support) into `~/printer_data/config/`.
 2. Set your real coordinates (`variable_purge_x`, `variable_purge_y`, `variable_wipe_dist`) and include it in `printer.cfg`:
    ```ini
    [include SmartPurge.cfg]
@@ -94,13 +103,13 @@ After every cut, a filament plug remains between the cutter blade and the nozzle
    ```gcode
    FILAMENT_CHANGE LAYER_NUM=[layer_num] NEXT_EXTRUDER=[next_extruder] MATERIAL=[filament_type]
    ```
-5. Slice as usual, export or send to print the gcode file. OrcaSlicer will display a native notification with your full savings report and append it to the end of the `.gcode` file.
+5. Slice as usual, export or send to print the G-code file. OrcaSlicer will display a native notification with your full savings report and append it to the end of the `.gcode` file.
 
 <p align="center">
   <img src="assets/report_v2.png" width="800" alt="ChromaSave Report">
 </p>
 
-## 🔬 Bambu Lab Setup & Beta.2 Note
+## 🔬 Bambu Lab Setup (Beta / Experimental)
 
 ChromaSave automatically detects Bambu Lab G-code (`M620 S`). No custom printer macros are required.
 
@@ -108,7 +117,7 @@ ChromaSave automatically detects Bambu Lab G-code (`M620 S`). No custom printer 
 2. Select your hotend preset in the ChromaSave UI (`44.485 mm` for X1/P1 or `38.249 mm` for A1), set `sm` to `10–15 mm`, and leave `purge_target` on `hybrid`.
 3. **Experimental Pre-Cut Retraction:** You may enable `Dynamic Pre-Cut Retraction` (e.g., `max 15–18 mm`) for controlled testing on Bambu Lab printers.
 
-> **Beta.2 Testing Notice (Bambu Lab):** Because Bambu Lab firmware is closed-source, please preview your G-code and monitor the first few toolchanges during physical prints. Watch specifically for:
+> **Beta Testing Notice (Bambu Lab):** Because Bambu Lab firmware is closed-source, please preview your G-code and monitor the first few toolchanges during physical prints. Watch specifically for:
 > 1. Smooth AMS/AMS Lite execution during `Chute Re-route` (`M620` / `M621`) and multi-chunk purges.
 > 2. Clean extrusion pressure immediately after `M621` when testing Experimental Pre-Cut Retraction.
 > 3. Clean Layer 1 color transitions (TC #1 omits Early-Cut via `[OMITTED: INIT]` to protect bed adhesion).
@@ -122,7 +131,7 @@ ChromaSave never requires OrcaSlicer *Full access*. Every G-code file already in
 
 ## Feedback, Support & License
 
-* **Beta Feedback:** Open a [GitHub Issue](https://github.com/deathstroke-co/ChromaSave/issues) with your printer model, firmware version, materials, and the `GLOBAL REPORT` block from your G-code.
+* **Feedback & Bug Reports:** Open a [GitHub Issue](https://github.com/deathstroke-co/ChromaSave/issues) with your printer model, firmware version, materials, and the `GLOBAL REPORT` block from your G-code.
 * **Recommendation:** Calibrate OrcaSlicer's Flushing Volumes Matrix for accurate purge calculations.
 * **Support:** [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/luismlara)
 

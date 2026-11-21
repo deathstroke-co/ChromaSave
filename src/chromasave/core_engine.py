@@ -1213,7 +1213,7 @@ def _run_optimizer(config, history_log_path, console_log_path):
     report_str = (
         "\n"
         " ==================================================================================\n"
-        " GLOBAL REPORT (ChromaSave v1.1.0-beta.2)\n"
+        " GLOBAL REPORT (ChromaSave v1.1.0)\n"
         " ==================================================================================\n"
         f"  Purge Target Mode:                               {PURGE_TARGET.upper()}\n"
         f"  Dynamic Pre-Cut Retraction:                      {pre_cut_status}\n"
@@ -1249,7 +1249,7 @@ def _run_optimizer(config, history_log_path, console_log_path):
     )
 
     report_orca = (
-            " GLOBAL REPORT (ChromaSave v1.1.0-beta.2)\n"
+            " GLOBAL REPORT (ChromaSave v1.1.0)\n"
             f"Purge Target Mode:            {PURGE_TARGET.upper()}\n"
             f"Dynamic Pre-Cut Retraction:   {pre_cut_status}\n"
             + ("WARNING: Disable 'Long retraction when cut' in printer/filament settings for Early-Cut.\n" if long_retract_warning else "")
