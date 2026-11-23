@@ -1,16 +1,22 @@
 <div align="center">
   <img src="assets/logo_chromasave.jpeg" width="800" alt="ChromaSave Logo">
 
-  ![Version](https://img.shields.io/badge/version-1.1.0-brightgreen.svg)
+  ![Version](https://img.shields.io/badge/version-1.1.1-brightgreen.svg)
   ![License](https://img.shields.io/badge/license-GNU%20AGPLv3-green.svg)
-  ![Platform](https://img.shields.io/badge/platform-OrcaSlicer%20%7C%20Klipper%20%7C%20Bambu%20Lab-orange.svg)
+  ![Platform](https://img.shields.io/badge/platform-OrcaSlicer%20%7C%20Klipper%20%7C%20Creality%20SPARKX%20%7C%20Bambu%20Lab-orange.svg)
 </div>
 
-Slash multi-color purge waste via Early-Cut & Pre-Cut Retraction. ChromaSave optimizes color transitions in OrcaSlicer for single-nozzle multi-color 3D printers (Klipper & Bambu Lab), consuming residual melt-zone filament inside hidden zones before purging to maximize material savings without compromising print quality.
+Slash multi-color purge waste via Early-Cut & Pre-Cut Retraction. ChromaSave optimizes color transitions in OrcaSlicer for single-nozzle multi-color 3D printers (Klipper, Creality SPARKX i7 & Bambu Lab), consuming residual melt-zone filament inside hidden zones before purging to maximize material savings without compromising print quality.
 
-# ChromaSave (v1.1.0)
+# ChromaSave (v1.1.1)
 
-**ChromaSave** is an open-source **OrcaSlicer** post-processing plugin and CLI tool designed to minimize multi-color purge waste on single-head multi-color 3D printers—including **Klipper** systems (such as CoPrint3D ChromaSet / KCM-Set with ChromaHead) and **Bambu Lab** printers (A1, A1 Mini, P1P, P1S, X1C).
+**ChromaSave** is an open-source **OrcaSlicer** post-processing plugin and CLI tool designed to minimize multi-color purge waste on single-head multi-color 3D printers—including **Klipper** systems (such as CoPrint3D ChromaSet / KCM-Set with ChromaHead), **Creality SPARKX i7**, and **Bambu Lab** printers (A1, A1 Mini, P1P, P1S, X1C).
+
+## What's New in v1.1.1
+
+* **Creality SPARKX i7 Support (Beta):** Pure G-code post-processing via automatic `M8200` detection—no custom Klipper macros required. Includes Early-Cut relocation, native `M8200 R` Dynamic Pre-Cut Retraction, multi-chunk chute purging (`<= 45.0 mm`), `M8200 R E-` long-retraction safety guardrail, and a `63.2 mm` UI preset.
+* **Parser Hardening (`M82`/`M83`):** Anchored extrusion-mode regexes prevent `M8200` commands from being misread as `M82` (absolute extrusion).
+* **Klipper `SmartPurge.cfg` Engineering Upgrades:** Added configurable post-purge solidification cooling pulse (`pulse_cool_fan` / `pulse_cool_ms`) in both `PURGE_IN_TRASH` and `FILAMENT_CHANGE`, safe auto-detection for `filament_sensor` suspension, optional `[fan_generic]` auxiliary fan pause/restore (`aux_fan`), and a commented perpendicular `FILAMENT_CUT` staging template for generic Klipper setups.
 
 ## What's New in v1.1.0
 
@@ -24,12 +30,14 @@ Slash multi-color purge waste via Early-Cut & Pre-Cut Retraction. ChromaSave opt
 
 ## Platform Support & Maturity
 
-| Platform / Feature | Status in `v1.1.0` |
+| Platform / Feature | Status in `v1.1.1` |
 | :--- | :--- |
 | **Klipper** (*Early-Cut* + *Dynamic Pre-Cut Retraction* + `SmartPurge.cfg`) | **Stable** *(Physically validated)* |
 | **OrcaSlicer HTML Config UI & Passive `DualLogger`** | **Stable** |
+| **Creality SPARKX i7** (*Early-Cut* + Native `M8200 R` Pre-Cut Retraction + Multi-Chunk Purge) | **Beta** *(G-code verified; community physical testing)* |
 | **Bambu Lab** (*Early-Cut* + Multi-Chunk Purge) | **Beta** *(Community validation)* |
 | **Bambu Lab** (*Dynamic Pre-Cut Retraction*) | **Experimental** |
+
 
 ## 🧠 The Concept & How It Works
 
@@ -59,7 +67,7 @@ After every cut, a filament plug remains between the cutter blade and the nozzle
 
 ## 🛠️ Installation & Visual Configuration (OrcaSlicer)
 
-1. Install and activate **ChromaSave** from **OrcaCloud** or load `chromasave-1.1.0-py3-none-any.whl` from [Releases](https://github.com/deathstroke-co/ChromaSave/releases) in the OrcaSlicer **Plugins** manager.
+1. Install and activate **ChromaSave** from **OrcaCloud** or load `chromasave-1.1.1-py3-none-any.whl` from [Releases](https://github.com/deathstroke-co/ChromaSave/releases) in the OrcaSlicer **Plugins** manager.
 2. Go to **Process -> Others -> Slicing Pipeline Plugin**, add **ChromaSave**, and click **Configure**.
 3. Adjust your hotend geometry, thresholds, and **Safety Zones** visually and click **Save Configuration**:
 
@@ -75,7 +83,7 @@ After every cut, a filament plug remains between the cutter blade and the nozzle
 
 | Parameter | Default | Description |
 | :--- | :--- | :--- |
-| **Remaining Length (`len`)** | `64.857 mm` | Cutter-to-nozzle filament length (presets included for ChromaHead `64.857`, Bambu X1/P1 `44.485`, Bambu A1 `38.249`). |
+| **Remaining Length (`len`)** | `64.857 mm` | Cutter-to-nozzle filament length (presets included for ChromaHead 64.857, SPARKX i7 63.2, Bambu X1/P1 44.485, Bambu A1 38.249). |
 | **Safety Margin (`sm`)** | `10.0 mm` | Buffer subtracted from `len` (`TARGET = len - sm`) to prevent color bleed (`20 mm` recommended for ChromaHead, `10–15 mm` for Bambu Lab). |
 | **Min Saving (`min_saving`)** | `3.0 mm` | Minimum recoverable filament required to execute an Early-Cut. |
 | **Skip Purge (`skip_purge`)** | `2.0 mm` | Residual chute purge below this value is skipped. |
@@ -86,8 +94,8 @@ After every cut, a filament plug remains between the cutter blade and the nozzle
 
 ## 🚀 Klipper Setup (Stable)
 
-1. Download [SmartPurge.cfg](./klipper_configs/) (updated for `v1.1.0` with `RETRACT_BEFORE_CUT` and `SKIP_THRESHOLD` support) into `~/printer_data/config/`.
-2. Set your real coordinates (`variable_purge_x`, `variable_purge_y`, `variable_wipe_dist`) and include it in `printer.cfg`:
+1. Download [SmartPurge.cfg](./klipper_configs/) (updated for `v1.1.1` with `RETRACT_BEFORE_CUT`, `SKIP_THRESHOLD`, configurable cooling pulse, safe `filament_sensor` detection, and optional `aux_fan` support) into `~/printer_data/config/`.
+2. Set your real coordinates (`variable_purge_x`, `variable_purge_y`, `variable_wipe_dist`) and optional hardware variables (`variable_pulse_cool_fan`, `variable_filament_sensor`, `variable_aux_fan`), then include it in `printer.cfg`:
    ```ini
    [include SmartPurge.cfg]
    ```
@@ -108,6 +116,16 @@ After every cut, a filament plug remains between the cutter blade and the nozzle
 <p align="center">
   <img src="assets/report_v2.png" width="800" alt="ChromaSave Report">
 </p>
+
+## 🔬 Creality SPARKX i7 Setup (Beta)
+
+ChromaSave automatically detects Creality SPARKX i7 G-code (`M8200`). No custom Klipper macros are required.
+
+1. **Important — Disable Native Long Retraction:** Turn **OFF** `Long retraction when cut` in OrcaSlicer (printer and filament profiles). If left enabled, ChromaSave detects `M8200 R E-` and safely omits optimization (`[OMITTED: LONG_RETRACT]`) to avoid double-retraction.
+2. Select the **SPARKX i7 (`63.2 mm`)** preset in the ChromaSave UI, set `sm` to `10–15 mm`, and leave `purge_target` on `hybrid`.
+3. **Native Dynamic Pre-Cut Retraction:** You may enable `Dynamic Pre-Cut Retraction` (e.g., `max 18.0 mm`) to inject native `M8200 R E-` pre-cut retractions and `G1 E+ F349` post-load recoveries.
+
+> **Beta Testing Notice (SPARKX i7):** G-code generation, kinematics (`G1 X0 F18000` pre-cut park), and purge math are fully verified; physical print validation is currently in community beta. Preview the G-code and monitor the first toolchanges closely.
 
 ## 🔬 Bambu Lab Setup (Beta / Experimental)
 

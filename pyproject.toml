@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # Static Plugin's Metadata
 name = "chromasave"
-version = "1.1.0"
+dynamic = ["version"]
 description = "G-code optimization plugin, designed to reduce filament waste in single-head multi-color 3D printing systems."
 authors = [
     { name = "Luis Miguel Lara (deathstroke-co)" }
@@ -29,3 +29,6 @@ include = ["chromasave*"]
 
 [tool.setuptools.package-data]
 chromasave = ["config_ui.html"]
+
+[tool.setuptools.dynamic]
+version = {attr = "chromasave._version.__version__"}
