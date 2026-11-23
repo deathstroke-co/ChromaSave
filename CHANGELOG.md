@@ -20,6 +20,13 @@ ChromaSave **v1.1.1** introduces **Creality SPARKX i7** native G-code support (*
   * **Long-Retraction Safety Guardrail:** Detects native `M8200 R E-` in stock toolchanges and safely omits optimization (`[OMITTED: LONG_RETRACT]`) when OrcaSlicer's *Long retraction when cut* is enabled.
 * **HTML Config UI (`config_ui.html`):** Added **SPARKX i7 (`63.2 mm`)** hotend length preset and bumped UI badge to `v1.1.1`.
 
+### Changed
+* **Klipper `SmartPurge.cfg` Upgrades:**
+  * Added configurable post-purge solidification cooling pulse (`variable_pulse_cool_fan: 255`, `variable_pulse_cool_ms: 2000`) before `WIPING_CYCLE` in both `PURGE_IN_TRASH` and `FILAMENT_CHANGE`.
+  * Made `filament_sensor` suspension safe across generic Klipper setups via `variable_filament_sensor` with automatic switch/motion sensor detection.
+  * Added optional auxiliary/chamber fan (`variable_aux_fan`) pause and state restoration during purges and toolchanges.
+  * Added a commented generic `FILAMENT_CUT` template with perpendicular `pre_cut_x` → `cut_x` staging (non-conflicting with CoPrint `cp_macro.cfg`).
+
 ### Fixed
 * **Extrusion Mode Parser (`M82`/`M83`):** Replaced loose substring matching with strict anchored regexes (`^\s*M82\b`, `^\s*M83\b`) so commands like `M8200` or inline comments never trigger a false switch to absolute extrusion (`M82`).
 

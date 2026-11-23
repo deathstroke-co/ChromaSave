@@ -16,6 +16,7 @@ Slash multi-color purge waste via Early-Cut & Pre-Cut Retraction. ChromaSave opt
 
 * **Creality SPARKX i7 Support (Beta):** Pure G-code post-processing via automatic `M8200` detection—no custom Klipper macros required. Includes Early-Cut relocation, native `M8200 R` Dynamic Pre-Cut Retraction, multi-chunk chute purging (`<= 45.0 mm`), `M8200 R E-` long-retraction safety guardrail, and a `63.2 mm` UI preset.
 * **Parser Hardening (`M82`/`M83`):** Anchored extrusion-mode regexes prevent `M8200` commands from being misread as `M82` (absolute extrusion).
+* **Klipper `SmartPurge.cfg` Engineering Upgrades:** Added configurable post-purge solidification cooling pulse (`pulse_cool_fan` / `pulse_cool_ms`) in both `PURGE_IN_TRASH` and `FILAMENT_CHANGE`, safe auto-detection for `filament_sensor` suspension, optional `[fan_generic]` auxiliary fan pause/restore (`aux_fan`), and a commented perpendicular `FILAMENT_CUT` staging template for generic Klipper setups.
 
 ## What's New in v1.1.0
 
@@ -93,8 +94,8 @@ After every cut, a filament plug remains between the cutter blade and the nozzle
 
 ## 🚀 Klipper Setup (Stable)
 
-1. Download [SmartPurge.cfg](./klipper_configs/) (updated for `v1.1.0` with `RETRACT_BEFORE_CUT` and `SKIP_THRESHOLD` support) into `~/printer_data/config/`.
-2. Set your real coordinates (`variable_purge_x`, `variable_purge_y`, `variable_wipe_dist`) and include it in `printer.cfg`:
+1. Download [SmartPurge.cfg](./klipper_configs/) (updated for `v1.1.1` with `RETRACT_BEFORE_CUT`, `SKIP_THRESHOLD`, configurable cooling pulse, safe `filament_sensor` detection, and optional `aux_fan` support) into `~/printer_data/config/`.
+2. Set your real coordinates (`variable_purge_x`, `variable_purge_y`, `variable_wipe_dist`) and optional hardware variables (`variable_pulse_cool_fan`, `variable_filament_sensor`, `variable_aux_fan`), then include it in `printer.cfg`:
    ```ini
    [include SmartPurge.cfg]
    ```
