@@ -300,7 +300,7 @@
   <div class="container">
     <header>
       <h1>ChromaSave</h1>
-      <span class="badge">v1.1.0</span>
+      <span class="badge">v1.1.1</span>
     </header>
 
     <!-- 1. Hotend Geometry & Thresholds -->
@@ -312,6 +312,7 @@
           <input type="number" id="len" min="1" max="250" step="0.001" />
           <div class="presets">
             <button type="button" class="preset-btn" data-len="64.857">ChromaHead (64.857)</button>
+            <button type="button" class="preset-btn" data-len="63.2">SPARKX i7 (63.2)</button>
             <button type="button" class="preset-btn" data-len="44.485">Bambu X1/P1 (44.485)</button>
             <button type="button" class="preset-btn" data-len="38.249">Bambu A1 (38.249)</button>
           </div>
@@ -359,7 +360,7 @@
         <input type="checkbox" id="pre_cut_retract" />
         <div class="toggle-text">
           <label for="pre_cut_retract">Enable Dynamic Pre-Cut Retraction</label>
-          <span class="hint">Retracts filament before cutting to recover the remaining gap up to Target (Klipper &amp; Experimental Bambu Lab).</span>
+          <span class="hint">Retracts filament before cutting to recover the remaining gap up to Target (Klipper, SPARKX i7 &amp; Experimental Bambu Lab).</span>
           <span class="warn-note">Requires OrcaSlicer's native "Long retraction when cut" to be disabled.</span>
         </div>
       </div>

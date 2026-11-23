@@ -1,3 +1,35 @@
+## [1.1.1] - 2026-11-22
+
+ChromaSave **v1.1.1** introduces **Creality SPARKX i7** native G-code support (**Beta**) with Early-Cut, native `M8200 R` Dynamic Pre-Cut Retraction, and multi-chunk chute purging, alongside a parser hardening fix for `M82`/`M83` extrusion mode detection.
+
+### Platform Support & Maturity
+| Platform / Feature | Status |
+| :--- | :--- |
+| **Klipper** (Early-Cut + Dynamic Pre-Cut Retraction + `SmartPurge.cfg`) | **Stable** (Physically verified) |
+| **OrcaSlicer Native HTML Config UI & Passive `DualLogger`** | **Stable** |
+| **Creality SPARKX i7** (Early-Cut + Native `M8200 R` Pre-Cut Retraction + Multi-Chunk Purge) | **Beta** (G-code verified; community physical testing) |
+| **Bambu Lab** (Early-Cut + Multi-Chunk Purge) | **Beta** (Community testing) |
+| **Bambu Lab** (Dynamic Pre-Cut Retraction) | **Experimental** |
+
+### Added
+* **Creality SPARKX i7 Native Support (`M8200`):**
+  * Automatic printer profile detection via `M8200` commands without requiring custom Klipper macros.
+  * **Early-Cut Relocation:** Relocates the toolchange cut sequence into hidden zones while filtering prime-tower spiral-lift moves (`G17`, `G2`) and preserving the `G1 X0 F18000` pre-cut park sequence, followed by safe *Return Travel* and *Chute Re-route*.
+  * **Native Dynamic Pre-Cut Retraction:** Injects `M8200 R E-<mm>` + `M400` before `M8200 C` and post-load recovery (`G1 E<mm> F349`) after `M8200 L`, dynamically capped by the remaining cold-zone gap (`TARGET - early_cut_saving`) and `max_pre_cut_retract`.
+  * **Safe Multi-Chunk Chute Purging:** Splits residual purges `> 45.0 mm` into equal chunks with cooling pulses (`M106 S255`, `G4 P2500`), retractions (`G1 E-2 F1800`), and `; WIPE` routines between chunks.
+  * **Long-Retraction Safety Guardrail:** Detects native `M8200 R E-` in stock toolchanges and safely omits optimization (`[OMITTED: LONG_RETRACT]`) when OrcaSlicer's *Long retraction when cut* is enabled.
+* **HTML Config UI (`config_ui.html`):** Added **SPARKX i7 (`63.2 mm`)** hotend length preset and bumped UI badge to `v1.1.1`.
+
+### Fixed
+* **Extrusion Mode Parser (`M82`/`M83`):** Replaced loose substring matching with strict anchored regexes (`^\s*M82\b`, `^\s*M83\b`) so commands like `M8200` or inline comments never trigger a false switch to absolute extrusion (`M82`).
+
+### Validation
+* **Creality SPARKX i7 (3-Layer Cube Audit):** Verified Stock Long-Retraction guardrail (`0/3` omitted), Early-Cut only (`3/3`, `0.35 g` saved, `OFE: 28.66%`), and Early-Cut + Native Pre-Cut Retraction (`3/3`, `0.42 g` saved, `OFE: 34.29%`, `CSE: 87.72%`).
+* **Regression Suite (Klipper & Bambu Lab A1):** Confirmed zero regressions across Early-Cut, Pre-Cut Retraction, multi-chunk purging, and `M620.11 S1` long-retraction protection.
+
+---
+
+
 ## [1.1.0] - 2026-11-21
 
 ChromaSave **v1.1.0** graduates **Klipper Early-Cut + Dynamic Pre-Cut Retraction** and the new **native HTML Configuration UI** to **Stable** following physical print validation, while expanding **Bambu Lab** compatibility in **Beta / Experimental** mode.
