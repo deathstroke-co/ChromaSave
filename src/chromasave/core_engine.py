@@ -217,6 +217,7 @@ def _run_optimizer(config, history_log_path, console_log_path):
     re_sparkx_load = re.compile(r"^M8200\s+L\b")
     re_fan_speed = re.compile(r"^M106\s+(?:P0\s+)?S([0-9]*\.?[0-9]+)")
     re_x0_park = re.compile(r"^\s*G[01]\s+X0(?:\.0+)?\b")
+    re_k2_cfs_model = re.compile(r"^\s*;\s*printer_model\s*=\s*Creality\s+K2\b", re.IGNORECASE)
 
     re_purge = re.compile(r"^\s*PURGE_IN_TRASH")
     re_type = re.compile(r"^;\s*(?:TYPE|FEATURE|_EXTRUSION_ROLE):\s*(.+)", re.IGNORECASE)
@@ -335,10 +336,12 @@ def _run_optimizer(config, history_log_path, console_log_path):
             printer_mode = "bambu"
         elif line.startswith("M8200 "):
             printer_mode = "sparkx_i7"
+        elif printer_mode == "klipper" and re_k2_cfs_model.search(line):
+            printer_mode = "k2_cfs"
 
         # Capture initial tool loaded in Start G-code before the first change
         if not first_tc_seen:
-            if "; CP TOOLCHANGE START" in line or line.startswith("FILAMENT_CHANGE"):
+            if current_layer >= 1 or "; CP TOOLCHANGE START" in line or line.startswith("FILAMENT_CHANGE"):
                 first_tc_seen = True
             else:
                 m_init_t = re_tool.search(line)
@@ -459,7 +462,8 @@ def _run_optimizer(config, history_log_path, console_log_path):
 
     is_bambu_lab = (printer_mode == "bambu")
     is_sparkx_i7 = (printer_mode == "sparkx_i7")
-    is_native_gcode_tc = is_bambu_lab or is_sparkx_i7
+    is_k2_cfs = (printer_mode == "k2_cfs")
+    is_native_gcode_tc = is_bambu_lab or is_sparkx_i7 or is_k2_cfs
     
     # IDENTIFYING BLOCKS AND TOOLS
     changes = []
@@ -470,38 +474,109 @@ def _run_optimizer(config, history_log_path, console_log_path):
         match_klipper = re_filament_change.search(line) if not is_native_gcode_tc else None
         match_native = re_bambu_tc_start.search(line) if is_native_gcode_tc else None
 
-        if match_klipper or match_native:
+        # Fallback detection when enable_prime_tower = 0 (no '; CP TOOLCHANGE START')
+        no_tower_mode = None
+        if is_native_gcode_tc and not match_native and line_layers[i] >= 1:
+            if is_bambu_lab:
+                m_bt_raw = re_bambu_tool.search(line)
+                if m_bt_raw and int(m_bt_raw.group(1)) != 255:
+                    no_tower_mode = "bambu"
+            elif is_k2_cfs:
+                m_t_raw = re_tool.search(line)
+                if m_t_raw and int(m_t_raw.group(1)[1:]) < 16:
+                    no_tower_mode = "k2_cfs"
+            elif is_sparkx_i7:
+                if re_sparkx_cut.search(line):
+                    no_tower_mode = "sparkx_i7"
+
+        if match_klipper or match_native or no_tower_mode:
             origin = i
             end_move = i
             layer_num = int(match_klipper.group(1)) if match_klipper else line_layers[i]
+
+            # Back-scan preambles when there is no '; CP TOOLCHANGE START'
+            if no_tower_mode == "bambu":
+                for back_k in range(i - 1, max(-1, i - 6), -1):
+                    st_b = lines[back_k].strip()
+                    if st_b.startswith(("M1007 S0", "G392 S0")):
+                        origin = back_k
+                    elif st_b == "" or st_b.startswith(";"):
+                        continue
+                    else:
+                        break
+            elif no_tower_mode == "k2_cfs":
+                for back_k in range(i - 1, max(-1, i - 12), -1):
+                    st_b = lines[back_k].strip()
+                    if st_b == "" or st_b.startswith((";", "M73", "M106", "G17", "G2 ", "G3 ")) or re_x0_park.match(st_b) or (st_b.startswith("G1 Z") and "E" not in st_b):
+                        if st_b != "" and not st_b.startswith(";"):
+                            origin = back_k
+                    else:
+                        break
+            elif no_tower_mode == "sparkx_i7":
+                for back_k in range(i - 1, max(-1, i - 15), -1):
+                    st_b = lines[back_k].strip()
+                    if st_b == "" or st_b.startswith((";", "M73", "M106", "M104", "M400", "M8200", "SET_VELOCITY_LIMIT", "G17", "G2 ", "G3 ")) or re_x0_park.match(st_b) or (st_b.startswith(("G0 ", "G1 ")) and "E" not in st_b and "Z" in st_b):
+                        if st_b != "" and not st_b.startswith(";"):
+                            origin = back_k
+                    else:
+                        break
 
             t_idx = 0
             current_tool = "T?"
 
             tc_block_end = i
             wipe_sub_start = -1
+            tool_line_idx = -1
             search_limit = min(i + 400, total_lines)
-            for j in range(i, search_limit):
-                match_tool = re_tool.search(lines[j])
-                if match_tool:
-                    current_tool = match_tool.group(1)
-                    if current_tool[1:].isdigit():
-                        t_idx = int(current_tool[1:])
-                elif is_bambu_lab:
-                    m_bt = re_bambu_tool.search(lines[j])
-                    if m_bt and int(m_bt.group(1)) != 255:
-                        t_idx = int(m_bt.group(1))
-                        current_tool = f"T{t_idx}"
 
-                if is_native_gcode_tc:
-                    if "; CP TOOLCHANGE WIPE" in lines[j] and wipe_sub_start == -1:
-                        wipe_sub_start = j
-                    if re_bambu_tc_end.search(lines[j]):
+            if no_tower_mode == "k2_cfs":
+                m_t_k2 = re_tool.search(lines[i])
+                current_tool = m_t_k2.group(1)
+                t_idx = int(current_tool[1:])
+                tool_line_idx = i
+                tc_block_end = i
+            else:
+                for j in range(origin, search_limit):
+                    match_tool = re_tool.search(lines[j])
+                    if match_tool:
+                        current_tool = match_tool.group(1)
+                        if current_tool[1:].isdigit():
+                            t_idx = int(current_tool[1:])
+                            if tool_line_idx == -1:
+                                tool_line_idx = j
+                    elif is_bambu_lab:
+                        m_bt = re_bambu_tool.search(lines[j])
+                        if m_bt and int(m_bt.group(1)) != 255:
+                            t_idx = int(m_bt.group(1))
+                            current_tool = f"T{t_idx}"
+
+                    if is_native_gcode_tc:
+                        if "; CP TOOLCHANGE WIPE" in lines[j] and wipe_sub_start == -1:
+                            wipe_sub_start = j
+
+                        if no_tower_mode == "bambu":
+                            if lines[j].startswith("M621 S"):
+                                tc_block_end = j
+                                for fwd_k in range(j + 1, min(j + 6, total_lines)):
+                                    if lines[fwd_k].strip().startswith(("G392 S0", "M1007 S1")):
+                                        tc_block_end = fwd_k
+                                    elif lines[fwd_k].strip() != "":
+                                        break
+                                break
+                        elif no_tower_mode == "sparkx_i7":
+                            st_j = lines[j].strip()
+                            if j > i and (st_j.startswith((";TYPE:", ";FEATURE:", ";LAYER_CHANGE", "; CHANGE_LAYER")) or re_sparkx_cut.search(st_j)):
+                                break
+                            if st_j.startswith("M8200 O") or re_flush_end.search(lines[j]) or re_sparkx_load.search(st_j):
+                                tc_block_end = j
+                                if st_j.startswith("M8200 O"):
+                                    break
+                        elif re_bambu_tc_end.search(lines[j]):
+                            tc_block_end = j
+                            break
+                    elif not is_native_gcode_tc and match_tool:
                         tc_block_end = j
                         break
-                elif not is_native_gcode_tc and match_tool:
-                    tc_block_end = j
-                    break
 
             # Skip ghost/empty CP TOOLCHANGE START blocks (e.g., end-of-print tower close)
             if is_native_gcode_tc and current_tool == "T?":
@@ -512,7 +587,18 @@ def _run_optimizer(config, history_log_path, console_log_path):
             idx_purge_start = -1
             idx_purge_end = -1
             wiper_x = None
-            if is_native_gcode_tc:
+            if is_k2_cfs:
+                if tool_line_idx != -1:
+                    end_move = max(origin, tool_line_idx - 1)
+                    idx_purge_start = tool_line_idx
+                    idx_purge_end = tool_line_idx
+                elif wipe_sub_start != -1:
+                    end_move = wipe_sub_start - 1
+                else:
+                    end_move = tc_block_end
+            elif is_native_gcode_tc:
+                m628_idx = -1
+                m629_idx = -1
                 for j in range(origin, min(tc_block_end + 50, total_lines)):
                     if "; CP TOOLCHANGE WIPE" in lines[j]:
                         break
@@ -521,6 +607,16 @@ def _run_optimizer(config, history_log_path, console_log_path):
                             idx_purge_start = j
                     elif re_flush_end.search(lines[j]):
                         idx_purge_end = j
+                    elif is_bambu_lab:
+                        st_l = lines[j].strip()
+                        if st_l.startswith("M628 S0") and m628_idx == -1:
+                            m628_idx = j
+                        elif st_l == "M629" and m628_idx != -1 and m629_idx == -1:
+                            m629_idx = j
+
+                if is_bambu_lab and idx_purge_start == -1 and m628_idx != -1 and m629_idx > m628_idx + 1:
+                    idx_purge_start = m628_idx + 1
+                    idx_purge_end = m629_idx - 1
 
                 if is_bambu_lab and idx_purge_end != -1:
                     for j in range(idx_purge_end + 1, min(tc_block_end + 1, total_lines)):
@@ -541,7 +637,6 @@ def _run_optimizer(config, history_log_path, console_log_path):
                                 end_move = j - 1
                                 break
                     elif is_sparkx_i7:
-                        # Keep ;flush_length_1 comment out of the moved cut block
                         while end_move > origin and (lines[end_move].strip() == "" or lines[end_move].lstrip().startswith(";flush_length")):
                             end_move -= 1
                 elif wipe_sub_start != -1:
@@ -592,9 +687,18 @@ def _run_optimizer(config, history_log_path, console_log_path):
         i += 1
 
     # EXACT TOWER CALCULATION
-    bed_max_xy = 260.0 if is_sparkx_i7 else 256.0
+    if is_k2_cfs:
+        bed_max_xy = 350.0
+    elif is_sparkx_i7:
+        bed_max_xy = 260.0
+    else:
+        bed_max_xy = 256.0
+
     for idx_change, c in enumerate(changes):
-        if is_native_gcode_tc:
+        if is_k2_cfs:
+            start_search = (c["idx_purge_end"] + 1) if c["idx_purge_end"] != -1 else (c["end_move"] + 1)
+            chute_x, chute_y = -999.0, -999.0
+        elif is_native_gcode_tc:
             start_search = (c["idx_purge_end"] + 1) if c["idx_purge_end"] != -1 else (c["end_move"] + 1)
             chute_x = state_x[c["idx_purge_end"]] if c["idx_purge_end"] != -1 else state_x[c["origin"]]
             chute_y = state_y[c["idx_purge_end"]] if c["idx_purge_end"] != -1 else state_y[c["origin"]]
@@ -641,7 +745,8 @@ def _run_optimizer(config, history_log_path, console_log_path):
             has_long_retract = filament_lr_active or (global_long_retract_cut == 1)
             lr_source = f"T{prev_t_idx} filament profile" if filament_lr_active else "global printer settings"
 
-        is_init_block = (c["layer"] < 0) or (idx_change < 1 and not is_sparkx_i7) or (is_sparkx_i7 and c["layer"] < 1)
+
+        is_init_block = (c["layer"] < 1) if is_native_gcode_tc else (c["layer"] < 0)
 
         if has_long_retract:
             candidate_index = c["origin"]
@@ -774,7 +879,7 @@ def _run_optimizer(config, history_log_path, console_log_path):
 
         # DYNAMIC PRE-CUT RETRACTION (Klipper + Experimental Bambu Lab)
         pre_cut_retract_mm = 0.0
-        if ENABLE_PRE_CUT_RETRACT and not has_long_retract and c["layer"] >= 0:
+        if ENABLE_PRE_CUT_RETRACT and not has_long_retract and not is_init_block:
             gap_mm = max(0.0, TARGET - candidate_saving)
             pre_cut_retract_mm = min(gap_mm, MAX_PRE_CUT_RETRACT)
             if pre_cut_retract_mm < 0.5:
@@ -858,10 +963,12 @@ def _run_optimizer(config, history_log_path, console_log_path):
 
         ec_sav = c.get("saving_early_cut", 0.0)
         ret_sav = c.get("saving_retract", 0.0)
+        did_early_cut = False
 
         if c.get("cut_index") < c["origin"] and ec_sav >= MIN_SAVING_THRESHOLD:
             # --- TOOLCHANGE MANAGEMENT (Early-Cut + Optional Pre-Cut Retract) ---
             block = lines[c["origin"] : c["end_move"] + 1]
+            did_early_cut = True
 
             if is_bambu_lab:
                 prev_idx = max(0, c["cut_index"] - 1)
@@ -1048,7 +1155,29 @@ def _run_optimizer(config, history_log_path, console_log_path):
                     "G92 E0\n",
                     "; -------------------------------------------\n"
                 ])
-            
+
+            elif is_k2_cfs:
+                prev_idx = max(0, c["cut_index"] - 1)
+                cut_layer = line_layers[prev_idx]
+                t_num = c.get("t_idx", 0)
+                prev_t_num = c.get("prev_t_idx", 0)
+
+                restore_temp = 0.0
+                if cut_layer <= 1 and prev_t_num < len(nozzle_temps_init):
+                    restore_temp = nozzle_temps_init[prev_t_num]
+                elif prev_t_num < len(nozzle_temps):
+                    restore_temp = nozzle_temps[prev_t_num]
+
+                ret_param = f" RETRACT_BEFORE_CUT={ret_sav:.2f}" if ret_sav > 0.0 else ""
+                k2_cut_cmds = [
+                    "; --- ChromaSave K2 CFS Early-Cut ---\n",
+                    f"SMARTPURGE_K2_CUT NEXT_EXTRUDER={t_num}{ret_param}\n",
+                ]
+                if restore_temp > 0:
+                    k2_cut_cmds.append(f"M104 S{restore_temp:.0f}\n")
+                k2_cut_cmds.append("; -----------------------------------\n")
+                insertions[c["cut_index"]].extend(k2_cut_cmds)
+
             else:
                 klipper_block = []
                 for b_line in block:
@@ -1092,7 +1221,10 @@ def _run_optimizer(config, history_log_path, console_log_path):
                             f"; ChromaSave SPARKX i7 Native Post-Load Recovery (+{ret_sav:.2f} mm)\n",
                             f"G1 E{ret_sav:.2f} F349\n"
                         ])
-            
+
+            elif is_k2_cfs:
+                pass  # Handled atomically in PURGE MANAGEMENT alongside SMARTPURGE_K2_FLUSH
+
             else:
                 replacement[c["origin"]] = append_retract_param(lines[c["origin"]], ret_sav)
 
@@ -1117,7 +1249,12 @@ def _run_optimizer(config, history_log_path, console_log_path):
         p_start = c.get("idx_purge_start", -1)
         p_end = c.get("idx_purge_end", -1)
 
-        if p_start != -1 and not (is_native_gcode_tc and c.get("status_tag") == "[OMITTED: LONG_RETRACT]"):
+        skip_native_purge = (
+            is_native_gcode_tc
+            and c.get("status_tag") in ("[OMITTED: LONG_RETRACT]", "[OMITTED: INIT]")
+        )
+
+        if p_start != -1 and not skip_native_purge:
             curr_t_idx = c.get("t_idx", 0)
             prev_t_idx = c.get("prev_t_idx", curr_t_idx)
             
@@ -1277,7 +1414,31 @@ def _run_optimizer(config, history_log_path, console_log_path):
                             f"; FLUSH_END\n"
                         )
                     replacement[p_start] = sparkx_wipe_str.join(purge_blocks)
-            
+
+            elif is_k2_cfs:
+                net_purge = c["calculate_quantity"]
+                target_temp = 0.0
+                if c["layer"] <= 1 and curr_t_idx < len(nozzle_temps_init):
+                    target_temp = nozzle_temps_init[curr_t_idx]
+                elif curr_t_idx < len(nozzle_temps):
+                    target_temp = nozzle_temps[curr_t_idx]
+
+                temp_param = f" TEMP={target_temp:.0f}" if target_temp > 0 else ""
+                k2_lines = []
+
+                if not did_early_cut:
+                    ret_param = f" RETRACT_BEFORE_CUT={ret_sav:.2f}" if ret_sav > 0.0 else ""
+                    k2_lines.append("; --- ChromaSave K2 CFS Toolchange (No Early-Cut) ---\n")
+                    k2_lines.append(f"SMARTPURGE_K2_CUT NEXT_EXTRUDER={curr_t_idx}{ret_param}\n")
+
+                k2_lines.append("; --- ChromaSave K2 CFS Dynamic Flush ---\n")
+                k2_lines.append(
+                    f"SMARTPURGE_K2_FLUSH QUANTITY={net_purge:.4f}{temp_param} "
+                    f"SKIP_THRESHOLD={SKIP_PURGE_THRESHOLD} OBS=\"{obs_text}\"\n"
+                )
+                k2_lines.append("; ---------------------------------------\n")
+                replacement[p_start] = "".join(k2_lines)
+
             else:
                 match_indent = re.match(r"^(\s*)", lines[p_start])
                 indent = match_indent.group(1) if match_indent else ""
@@ -1402,6 +1563,8 @@ def _run_optimizer(config, history_log_path, console_log_path):
             pre_cut_status = f"EXPERIMENTAL (Max {MAX_PRE_CUT_RETRACT:.1f} mm)"
         elif is_sparkx_i7:
             pre_cut_status = f"ENABLED (Native M8200 R, Max {MAX_PRE_CUT_RETRACT:.1f} mm)"
+        elif is_k2_cfs:
+            pre_cut_status = f"ENABLED (SmartPurge_K2, Max {MAX_PRE_CUT_RETRACT:.1f} mm)"
         else:
             pre_cut_status = f"ENABLED (Max {MAX_PRE_CUT_RETRACT:.1f} mm)"
     else:

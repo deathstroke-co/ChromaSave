@@ -174,7 +174,7 @@ if orca is not None and hasattr(orca, "slicing"):
             ui_path = os.path.join(os.path.dirname(__file__), "config_ui.html")
             if os.path.exists(ui_path):
                 with open(ui_path, "r", encoding="utf-8") as f:
-                    return f.read()
+                    return f.read().replace("{{VERSION}}", __version__)
             return ""
 
         def get_default_config(self):
