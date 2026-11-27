@@ -815,18 +815,27 @@ def _run_optimizer(config, history_log_path, console_log_path):
                 if AVOID_IN_PIECE_CUT:
                     is_safe_zone = any((z in current_type and state) for z, state in SAFETY_ZONES.items())
                     
-                # Only register candidate if there is already accumulated real extrusion (> 0.0 mm)
-                if is_safe_zone and e_acumulated > 0.0:
+                # Only register candidate on lines with real extrusion (or valid retraction)
+                is_retract_line = (
+                    SEARCH_RETRACTIONS
+                    and (("G1" in line and "E-" in line) or "G10" in line)
+                    and re_retraction.search(line)
+                )
+                if is_safe_zone and e_acumulated > 0.0 and (line_extrusions[idx] > 0.0 or is_retract_line):
+                    if is_native_gcode_tc and idx > 0:
+                        px, py = state_x[idx - 1], state_y[idx - 1]
+                        if (px == 0.0 and py == 0.0) or px < 0.0 or px > bed_max_xy or py < 0.0 or py > bed_max_xy:
+                            continue
                     candidate_index = idx
                     candidate_saving = e_acumulated
-                    
-                    if SEARCH_RETRACTIONS and (("G1" in line and "E-" in line) or "G10" in line) and re_retraction.search(line):
+
+                    if is_retract_line:
                         if (TARGET - RETRACTION_MARGIN) <= e_acumulated <= TARGET:
                             safe_insert = idx + 1
-                            
+
                             if safe_insert < c["origin"] and "Z" in lines[safe_insert] and re_z_hop.search(lines[safe_insert]):
                                 safe_insert += 1
-                            
+
                             candidate_index = safe_insert
                             break_flag = "Retraction (Firmware or Standard) and Z-hop found in safety zone"
                             break

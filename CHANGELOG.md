@@ -1,3 +1,39 @@
+## [1.2.0] - 2026-11-26
+
+ChromaSave **v1.2.0** introduces **Creality K2 Series (`K2 Plus`, `K2`, `K2 Pro`)** CFS support (**Beta**) via `SmartPurge_K2.cfg` (`SMARTPURGE_K2_CUT` & `SMARTPURGE_K2_FLUSH`), alongside **3 critical parser fixes** resolving missed Layer 1 toolchange detections across profiles.
+
+### Platform Support & Maturity
+| Platform / Feature | Status |
+| :--- | :--- |
+| **Klipper** (Early-Cut + Dynamic Pre-Cut Retraction + `SmartPurge.cfg`) | **Stable** (Physically verified) |
+| **OrcaSlicer Native HTML Config UI & Passive `DualLogger`** | **Stable** |
+| **Creality K2 Series — K2 Plus / K2 / K2 Pro (CFS)** (`SmartPurge_K2.cfg` + Dynamic Pre-Cut Retraction) | **Beta** (G-code verified; community physical testing) |
+| **Creality SPARKX i7** (Early-Cut + Native `M8200 R` Pre-Cut Retraction + Multi-Chunk Purge) | **Beta** (G-code verified; community physical testing) |
+| **Bambu Lab** (Early-Cut + Multi-Chunk Purge) | **Beta** (Community testing) |
+| **Bambu Lab** (Dynamic Pre-Cut Retraction) | **Experimental** |
+
+### Added
+* **Creality K2 Series Support (`K2_CFS` — K2 Plus, K2, K2 Pro):**
+  * Automatic printer profile detection for Creality K2 Series CFS G-code (both `HYBRID` with prime tower and `BUCKET_ONLY` without prime tower).
+  * **Klipper Macro Orchestration (`SmartPurge_K2.cfg`):**
+    * Injects `SMARTPURGE_K2_CUT NEXT_EXTRUDER=<n>` (with conditional `RETRACT_BEFORE_CUT=<mm>` only when `PreCutRet > 0`) inside active safety zones immediately after retraction / `;WIPE_END` and before Z-hop.
+    * Cleanly replaces native unload/park/toolchange blocks (`G17`, `G2`/`G3` spiral lifts, `G1 X0 Y245`, `T<n>`) with `SMARTPURGE_K2_FLUSH QUANTITY=<mm> TEMP=<degC> SKIP_THRESHOLD=2.0`, preserving `M104`, `; filament start gcode`, `EXCLUDE_OBJECT` markers, and return-to-part moves.
+  * **Dynamic Pre-Cut Retraction (`--pre_cut_retract`):** Dynamically calculates the exact remaining gap (`min(TARGET - early_cut_saving, max_pre_cut_retract)`) up to `18.0 mm` max.
+* **HTML Config UI (`config_ui.html`):** Added **Creality K2 Series (`76.1 mm`)** hotend length preset and bumped UI badge to `v1.2.0`.
+
+### Fixed
+* **Layer 1 Toolchange Detection (3 Findings Resolved):**
+  * Fixed 3 parser edge cases that prevented Layer 1 (`TC #1`) toolchanges from being detected and optimized, ensuring reliable first-layer change tracking in both prime-tower (`HYBRID`) and no-tower (`BUCKET_ONLY`) workflows.
+* **K2 Series End-of-Print Preservation:** Ensured trailing `; CP TOOLCHANGE START` blocks without an active toolchange and `END_PRINT` sequences remain untouched.
+
+### Validation
+* **Full Test Suite (T1–T9):**
+  * **Creality K2 Series (`K2_CFS`, `--len 76.1`, `sm = 10.0`, `TARGET = 66.10 mm`):** Verified `HYBRID` (`no-pre-cut` vs. `pre-cut`: waste reduced from `0.71 g` / `CSE: 79.77%` to `0.65 g` / `CSE: 89.33%`) and `BUCKET_ONLY` (`1/1` optimized, `0.20 g` saved, `CSE: 100.00%`).
+  * **Long-Retraction Guardrail Regression (T9):** Verified safe pass-through (`[OMITTED: LONG_RETRACT]`, `0/3` modified) on both **Bambu Lab A1** (`M620.11 S1`) and **Creality SPARKX i7** (`M8200 R E-`).
+  * **OrcaSlicer Plugin Packaging:** Built and verified `.whl` package for OrcaCloud / OrcaSlicer Plugin Manager deployment.
+
+---
+
 ## [1.1.1] - 2026-11-22
 
 ChromaSave **v1.1.1** introduces **Creality SPARKX i7** native G-code support (**Beta**) with Early-Cut, native `M8200 R` Dynamic Pre-Cut Retraction, and multi-chunk chute purging, alongside a parser hardening fix for `M82`/`M83` extrusion mode detection.
@@ -35,7 +71,6 @@ ChromaSave **v1.1.1** introduces **Creality SPARKX i7** native G-code support (*
 * **Regression Suite (Klipper & Bambu Lab A1):** Confirmed zero regressions across Early-Cut, Pre-Cut Retraction, multi-chunk purging, and `M620.11 S1` long-retraction protection.
 
 ---
-
 
 ## [1.1.0] - 2026-11-21
 

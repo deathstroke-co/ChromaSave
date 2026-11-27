@@ -79,14 +79,14 @@ class ChromaSaveConfig:
         
         # Extract "SAFETY_ZONES" and match the actual values.
         raw_zones = ui_config.get("SAFETY_ZONES")
-        self.dzones = []
         if isinstance(raw_zones, dict):
             for zone in self.default_zones.keys():
                 if zone in raw_zones:
                     self.default_zones[zone] = bool(raw_zones[zone])
-                    if not self.default_zones[zone]:
-                        self.dzones.append(zone)
 
+        self.dzones = [zone for zone, active in self.default_zones.items() if not active]
+
+        
         # DIAGNOSTICS 1: Prints all key parameters to the logs.
         print(f"[ChromaSave LOG] ¡Configuration loaded successfully!", file=sys.stderr)
         print(f"[ChromaSave LOG] -> len: {self.len}", file=sys.stderr)
