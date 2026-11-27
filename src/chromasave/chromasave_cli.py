@@ -103,17 +103,28 @@ if __name__ == "__main__":
         "Custom": False                 
     }
     
+    default_disabled = [zone for zone, active in SAFETY_ZONES.items() if not active]
+
     parser.add_argument(
         '--dzones',
         action='append',
+        default=[],
         choices=list(SAFETY_ZONES.keys()),
-        help="Zones that you want disable - can be several (Prime tower, Wipe tower, Support, Support interface, Sparse infill, \
-            Dense infill, Solid infill, Internal solid infill, Skirt, Brim, Gap fill, Outer wall, Inner wall, Overhang wall, Top surface, \
-            Bottom surface, Internal bridge, Bridge, Custom)"
+        help="Additional zones to disable."
     )
-    
-    args = parser.parse_args()
+    parser.add_argument(
+        '--ezones',
+        action='append',
+        default=[],
+        choices=list(SAFETY_ZONES.keys()),
+        help="Zones to enable (overrides default disabled zones)."
+    )
 
+    args = parser.parse_args()
+    final_disabled = set(default_disabled) | set(args.dzones)
+    final_disabled -= set(args.ezones)
+    args.dzones = list(final_disabled)
+    
     # Executing Math Model
     results = filament_change_optimizer(args)
     

@@ -79,14 +79,14 @@ class ChromaSaveConfig:
         
         # Extract "SAFETY_ZONES" and match the actual values.
         raw_zones = ui_config.get("SAFETY_ZONES")
-        self.dzones = []
         if isinstance(raw_zones, dict):
             for zone in self.default_zones.keys():
                 if zone in raw_zones:
                     self.default_zones[zone] = bool(raw_zones[zone])
-                    if not self.default_zones[zone]:
-                        self.dzones.append(zone)
 
+        self.dzones = [zone for zone, active in self.default_zones.items() if not active]
+
+        
         # DIAGNOSTICS 1: Prints all key parameters to the logs.
         print(f"[ChromaSave LOG] ¡Configuration loaded successfully!", file=sys.stderr)
         print(f"[ChromaSave LOG] -> len: {self.len}", file=sys.stderr)
@@ -174,7 +174,7 @@ if orca is not None and hasattr(orca, "slicing"):
             ui_path = os.path.join(os.path.dirname(__file__), "config_ui.html")
             if os.path.exists(ui_path):
                 with open(ui_path, "r", encoding="utf-8") as f:
-                    return f.read()
+                    return f.read().replace("{{VERSION}}", __version__)
             return ""
 
         def get_default_config(self):
